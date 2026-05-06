@@ -1,0 +1,25 @@
+topics:
+  - name: symptom-input
+    partitions: 3
+    replication_factor: 1
+    description: Raw symptom events from the Flask backend.
+
+  - name: prediction-result
+    partitions: 3
+    replication_factor: 1
+    description: Output of the ML predictor (top-3 disease + severity).
+
+  - name: chat-messages
+    partitions: 3
+    replication_factor: 1
+    description: Chatbot conversation log.
+
+  - name: audit-log
+    partitions: 3
+    replication_factor: 1
+    description: Every event for PySpark batch analytics.
+
+  - name: alert-high-risk
+    partitions: 1
+    replication_factor: 1
+    description: HIGH-severity cases (future: alert specialists).

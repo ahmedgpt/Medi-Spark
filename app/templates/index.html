@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Welcome, {{ current_user.name or current_user.email }}</h1>
+  <p>MediSpark analyses your symptoms and offers AI-assisted advice.</p>
+  <div class="grid-2">
+    <a class="tile" href="{{ url_for('dashboard.predict_page') }}">
+      <h3>🔍 New Symptom Check</h3>
+      <p>Submit symptoms and get a risk-graded prediction.</p>
+    </a>
+    <a class="tile" href="{{ url_for('dashboard.history_page') }}">
+      <h3>📜 History</h3>
+      <p>Review your previous consultations.</p>
+    </a>
+  </div>
+</div>
+{% endblock %}

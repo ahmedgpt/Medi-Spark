@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ app_name }} — {% block title %}Healthcare Advisor{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('dashboard.index') }}">🩺 {{ app_name }}</a>
+    <nav>
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('dashboard.predict_page') }}">Predict</a>
+        <a href="{{ url_for('dashboard.history_page') }}">History</a>
+        <a href="{{ url_for('auth.logout') }}">Logout ({{ current_user.email }})</a>
+      {% else %}
+        <a href="{{ url_for('auth.login') }}">Login</a>
+        <a href="{{ url_for('auth.register') }}">Register</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, msg in messages %}
+        <div class="flash flash-{{ category }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <small>MediSpark — Educational project. Not a substitute for professional medical advice.</small>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

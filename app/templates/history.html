@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Your consultation history</h2>
+  <div id="history-list">Loading…</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch('/api/history').then(r => r.json()).then(data => {
+  const root = document.getElementById('history-list');
+  if (!data.items || !data.items.length) { root.textContent = 'No records yet.'; return; }
+  root.innerHTML = data.items.map(i => `
+    <div class="history-item">
+      <strong>${new Date(i.created_at).toLocaleString()}</strong>
+      <div>Symptoms: ${(i.symptoms || []).join(', ')}</div>
+      <div>Duration: ${i.duration_days} day(s) · Age: ${i.age ?? '—'}</div>
+      <div>Status: ${i.prediction ? 'Predicted' : 'Queued'}</div>
+    </div>`).join('');
+});
+</script>
+{% endblock %}
