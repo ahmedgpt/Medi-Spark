@@ -1,56 +1,50 @@
-"""ML predictor — Week 1 provides only a thin loader; Week 2 wires it into Kafka."""
-from __future__ import annotations
+"""Runtime ML predictor — loads trained model, returns top-3 disease predictions."""
 
-import json
-import logging
-import os
-from typing import Any
+from pathlib import Path
 
 import joblib
+import numpy as np
 
 from config.settings import Config
 
-log = logging.getLogger(__name__)
-
-_model = None
-_symptom_index: dict[str, int] | None = None
-_classes: list[str] | None = None
-
-
-def _ensure_loaded() -> None:
-    global _model, _symptom_index, _classes
-    if _model is not None:
-        return
-    if not os.path.exists(Config.MODEL_PATH):
-        raise FileNotFoundError(
-            f"Trained model not found at {Config.MODEL_PATH}. "
-            "Run: python -m app.spark.model_trainer"
-        )
-    bundle = joblib.load(Config.MODEL_PATH)
-    _model = bundle["model"]
-    _symptom_index = bundle["symptom_index"]
-    _classes = list(bundle["classes"])
-    log.info("Model loaded: %d symptoms, %d classes", len(_symptom_index), len(_classes))
+MODEL_DIR = Path(Config.MODEL_PATH).resolve().parent
+_classifier = None
+_label_encoder = None
+_feature_names = None   # list of 132 symptom column names
 
 
-def predict_disease(symptoms: list[str], top_k: int = 3) -> dict[str, Any]:
-    """Return top-k diseases with confidence scores."""
-    _ensure_loaded()
-    assert _model is not None and _symptom_index is not None and _classes is not None
+def _load():
+    global _classifier, _label_encoder, _feature_names
+    if _classifier is None:
+        _classifier    = joblib.load(os.path.join(MODEL_DIR, "disease_classifier.pkl"))
+        _label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
+        _feature_names = joblib.load(os.path.join(MODEL_DIR, "feature_names.pkl"))
 
-    vector = [0] * len(_symptom_index)
-    matched = 0
-    for s in symptoms:
-        idx = _symptom_index.get(s.strip().lower().replace(" ", "_"))
-        if idx is not None:
-            vector[idx] = 1
-            matched += 1
 
-    proba = _model.predict_proba([vector])[0]
-    ranked = sorted(zip(_classes, proba), key=lambda x: x[1], reverse=True)[:top_k]
-    return {
-        "matched_symptoms": matched,
-        "predictions": [
-            {"disease": d, "confidence": round(float(p), 4)} for d, p in ranked
-        ],
-    }
+def predict_diseases(symptoms: list, top_n: int = 3) -> list:
+    """
+    symptoms : list of raw strings e.g. ['itching', 'skin rash', 'nodal skin eruptions']
+    Returns  : [{'disease': str, 'confidence': float}, ...]
+    """
+    _load()
+
+    # Normalise input symptoms to match column-name format
+    normalised = {s.strip().lower().replace(" ", "_") for s in symptoms}
+
+    # Build binary feature vector (1 if symptom present, else 0)
+    vec = np.array(
+        [1 if feat in normalised else 0 for feat in _feature_names],
+        dtype=int
+    ).reshape(1, -1)
+
+    proba       = _classifier.predict_proba(vec)[0]
+    top_indices = np.argsort(proba)[::-1][:top_n]
+
+    return [
+        {
+            "disease":    _label_encoder.classes_[i],
+            "confidence": round(float(proba[i]), 4),
+        }
+        for i in top_indices
+        if proba[i] > 0.0   # skip zero-probability predictions
+    ]
