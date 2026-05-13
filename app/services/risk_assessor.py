@@ -1,22 +1,49 @@
-"""Week 2 — Risk assessment from severity score."""
-from __future__ import annotations
+"""
+Day 10: Risk Assessor
+Classifies cases as HIGH / MEDIUM / LOW with recommendations.
+"""
+
+from app.services.severity_scorer import calculate_severity
 
 
-def assess(severity: int) -> dict:
-    if severity >= 70:
-        return {
-            "level": "HIGH",
-            "tests": ["CBC", "LFT", "Chest X-ray"],
-            "advice": "Consult a specialist immediately. Prescription-level care recommended.",
-        }
-    if severity >= 40:
-        return {
-            "level": "MEDIUM",
-            "tests": ["Basic blood test"],
-            "advice": "OTC medication with monitoring. See a GP if symptoms persist.",
-        }
+def assess_risk(symptoms: list, duration_days: int = 1, age: int = 30) -> dict:
+    """
+    Assess risk level based on severity score.
+    Returns full risk assessment dict.
+    """
+    score = calculate_severity(symptoms, duration_days, age)
+
+    if score >= 70:
+        level = "HIGH"
+        tests = [
+            "Complete Blood Count (CBC)",
+            "Liver Function Test (LFT)",
+            "Chest X-Ray",
+            "ECG",
+            "Blood Culture"
+        ]
+        advice = "Seek immediate medical attention. Visit a specialist or emergency room."
+        medicine_type = "prescription"
+
+    elif score >= 40:
+        level = "MEDIUM"
+        tests = [
+            "Basic Blood Test",
+            "Urine Analysis"
+        ]
+        advice = "Consult a doctor within 24-48 hours. Monitor symptoms closely."
+        medicine_type = "otc"
+
+    else:
+        level = "LOW"
+        tests = []
+        advice = "Rest and stay hydrated. Use OTC medicines if needed."
+        medicine_type = "otc"
+
     return {
-        "level": "LOW",
-        "tests": [],
-        "advice": "Self-care and OTC remedies should suffice. Monitor for changes.",
+        "severity_score": score,
+        "risk_level":     level,
+        "recommended_tests": tests,
+        "advice":         advice,
+        "medicine_type":  medicine_type
     }

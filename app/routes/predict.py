@@ -1,73 +1,101 @@
-"""/api/predict — accepts symptom payload, publishes to Kafka, returns ack."""
-from __future__ import annotations
+"""
+Day 10-11: Predict route — wires ML + RAG + Severity + Risk + Medicine together.
+Endpoint: POST /api/predict
+"""
 
-import logging
+from flask import Blueprint, request, jsonify
 
-from flask import Blueprint, current_app, jsonify, request
-from flask_login import current_user, login_required
-
-from app.models.symptom_log import SymptomLog
-from app.services.kafka_producer import get_producer
+from app.services.ml_predictor       import predict_diseases
+from app.services.rag_engine         import retrieve
+from app.services.severity_scorer    import calculate_severity
+from app.services.risk_assessor      import assess_risk
+from app.services.medicine_suggester import suggest_medicines
+from app.services import kafka_producer
 
 predict_bp = Blueprint("predict", __name__)
-log = logging.getLogger(__name__)
 
 
 @predict_bp.route("/predict", methods=["POST"])
-@login_required
 def predict():
-    payload = request.get_json(silent=True) or request.form.to_dict()
+    """
+    Full prediction pipeline:
+    1. Receive symptoms + duration + age
+    2. ML prediction (top 3 diseases)
+    3. Severity score + risk assessment
+    4. RAG retrieval (medical knowledge)
+    5. Medicine suggestions
+    6. Kafka event publish
+    """
+    data = request.get_json(silent=True) or {}
 
-    raw_text = (payload.get("symptoms_text") or "").strip()
-    symptoms = payload.get("symptoms") or _split_text(raw_text)
-    duration_days = int(payload.get("duration_days") or 1)
-    age = int(payload["age"]) if str(payload.get("age", "")).isdigit() else current_user.age
-    language = (payload.get("language") or "en").lower()
+    # ── Input extraction ───────────────────────────────────────────────────────
+    symptoms = data.get("symptoms", [])
+    try:
+        duration = int(data.get("duration_days", 1))
+        age      = int(data.get("age", 30))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid duration_days or age - must be integers"}), 400
 
     if not symptoms:
-        return jsonify({"error": "No symptoms supplied."}), 400
+        return jsonify({"error": "No symptoms provided"}), 400
 
-    log_id = SymptomLog.create(
-        user_id=current_user.id,
-        symptoms=symptoms,
-        duration_days=duration_days,
-        age=age,
-        language=language,
-        raw_text=raw_text,
-    )
+    # ── Step 1: ML Prediction ─────────────────────────────────────────────────
+    try:
+        predictions = predict_diseases(symptoms, top_n=3)
+    except Exception as e:
+        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
+    top_disease = predictions[0]["disease"] if predictions else "Unknown"
 
-    event = {
-        "log_id": log_id,
-        "user_id": current_user.id,
-        "symptoms": symptoms,
-        "duration_days": duration_days,
-        "age": age,
-        "language": language,
-        "raw_text": raw_text,
+    # ── Step 2: Severity + Risk ───────────────────────────────────────────────
+    try:
+        risk = assess_risk(symptoms, duration, age)
+    except Exception as e:
+        return jsonify({"error": f"Risk assessment failed: {str(e)}"}), 500
+
+    # ── Step 3: RAG Retrieval ─────────────────────────────────────────────────
+    try:
+        rag_query   = f"What are the symptoms and treatment of {top_disease}?"
+        rag_results = retrieve(rag_query, k=3)
+    except Exception as e:
+        rag_results = []
+        print(f"[WARN] RAG retrieval failed: {e}")
+
+    # ── Step 4: Medicine Suggestions ─────────────────────────────────────────
+    try:
+        medicines = suggest_medicines(top_disease, risk.get("medicine_type", "otc"))
+    except Exception as e:
+        medicines = {"error": str(e)}
+
+    # ── Step 5: Publish to Kafka ──────────────────────────────────────────────
+    try:
+        kafka_producer.publish("symptom-input", {
+            "symptoms":    symptoms,
+            "duration":    duration,
+            "age":         age,
+            "top_disease": top_disease,
+            "risk_level":  risk["risk_level"],
+            "severity":    risk["severity_score"]
+        })
+    except Exception:
+        pass  # Don't fail the request if Kafka is down
+
+    # ── Build response ────────────────────────────────────────────────────────
+    response = {
+        "predictions": predictions,
+        "risk": {
+            "severity_score":    risk.get("severity_score", 0),
+            "risk_level":        risk.get("risk_level", "UNKNOWN"),
+            "recommended_tests": risk.get("recommended_tests", []),
+            "advice":            risk.get("advice", "")
+        },
+        "medicines":     medicines,
+        "rag_knowledge": [
+            {
+                "disease": r.get("disease", "Unknown"),
+                "content": r.get("content", "")[:300]
+            }
+            for r in rag_results
+        ]
     }
 
-    try:
-        get_producer().send(
-            current_app.config["TOPIC_SYMPTOM_INPUT"], value=event, key=current_user.id
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.exception("Kafka publish failed: %s", exc)
-        return jsonify({"error": "Streaming layer unavailable.", "log_id": log_id}), 503
-
-    # Week 1 returns an ack only. Week 2 will block until a prediction-result is ready.
-    return jsonify(
-        {
-            "status": "queued",
-            "log_id": log_id,
-            "message": "Symptoms received. Prediction pipeline will populate results.",
-        }
-    )
-
-
-def _split_text(text: str) -> list[str]:
-    if not text:
-        return []
-    seps = [",", ";", "/", "\n"]
-    for s in seps:
-        text = text.replace(s, ",")
-    return [t.strip().lower().replace(" ", "_") for t in text.split(",") if t.strip()]
+    return jsonify(response), 200

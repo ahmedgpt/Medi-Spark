@@ -1,14 +1,13 @@
 """Runtime ML predictor — loads trained model, returns top-3 disease predictions."""
 
-from pathlib import Path
-
+import os
 import joblib
 import numpy as np
 
-from config.settings import Config
+BASE_DIR   = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_DIR  = os.path.join(BASE_DIR, "models")
 
-MODEL_DIR = Path(Config.MODEL_PATH).resolve().parent
-_classifier = None
+_classifier    = None
 _label_encoder = None
 _feature_names = None   # list of 132 symptom column names
 
@@ -26,7 +25,13 @@ def predict_diseases(symptoms: list, top_n: int = 3) -> list:
     symptoms : list of raw strings e.g. ['itching', 'skin rash', 'nodal skin eruptions']
     Returns  : [{'disease': str, 'confidence': float}, ...]
     """
-    _load()
+    try:
+        _load()
+    except Exception as e:
+        raise RuntimeError(f"Failed to load ML model: {str(e)}") from e
+    
+    if _classifier is None or _label_encoder is None or _feature_names is None:
+        raise RuntimeError("ML model failed to load. Ensure model files exist in models/ directory.")
 
     # Normalise input symptoms to match column-name format
     normalised = {s.strip().lower().replace(" ", "_") for s in symptoms}
@@ -46,5 +51,5 @@ def predict_diseases(symptoms: list, top_n: int = 3) -> list:
             "confidence": round(float(proba[i]), 4),
         }
         for i in top_indices
-        if proba[i] > 0.0   # skip zero-probability predictions
+        if proba[i] > 0.0
     ]
