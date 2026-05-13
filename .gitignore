@@ -30,3 +30,4 @@ logs/
 
 # Docker volumes
 docker/volumes/
+data/chromadb/ 
