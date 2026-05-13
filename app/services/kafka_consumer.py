@@ -23,7 +23,11 @@ from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
 
 from .kafka_producer import publish
-from ...config.settings import Config
+
+try:
+    from config.settings import Config
+except ImportError:  # pragma: no cover
+    from ...config.settings import Config
 
 logging.basicConfig(
     level=logging.INFO,

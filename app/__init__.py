@@ -5,7 +5,10 @@ import logging
 
 from flask import Flask
 
-from ..config.settings import Config
+try:
+    from config.settings import Config
+except ImportError:  # pragma: no cover
+    from ..config.settings import Config
 
 from .extensions import init_redis, login_manager, mongo, server_session
 

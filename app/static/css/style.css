@@ -36,6 +36,15 @@ textarea { resize: vertical; }
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
 .tile { display:block; padding:18px; border-radius:10px; background:#f7fafc; border:1px solid var(--border); text-decoration:none; color:var(--text); }
 .tile:hover { border-color: var(--primary); }
-.output { background:#0f172a; color:#cbd5e1; padding:14px; border-radius:8px; min-height:80px; white-space:pre-wrap; }
+.output { background:#f7fafc; color:var(--text); padding:14px; border-radius:8px; min-height:80px; white-space:pre-wrap; border:1px solid var(--border); margin-top:16px; }
+.output .result h3 { margin: 14px 0 6px; font-size: 1rem; color: var(--primary-dark); }
+.output .result ol, .output .result ul { margin: 4px 0 0 20px; padding: 0; }
+.output .result pre { background:#0f172a; color:#cbd5e1; padding:10px; border-radius:6px; overflow:auto; }
+.output .error { background:#fbe6e3; color: var(--danger); padding: 10px 14px; border-radius:6px; }
+.risk-badge { display:inline-block; padding:6px 14px; border-radius:999px; font-weight:700; color:#fff; margin-bottom:10px; }
+.risk-badge.high { background: var(--danger); }
+.risk-badge.medium { background: var(--warning); }
+.risk-badge.low { background: var(--success); }
+.risk-badge.unknown { background: var(--muted); }
 .history-item { padding:12px; border-bottom:1px solid var(--border); }
 .footer { text-align:center; padding: 18px; color: var(--muted); }

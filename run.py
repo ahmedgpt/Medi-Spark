@@ -1,6 +1,10 @@
 """Application entry point."""
 from app import create_app
-from config.settings import Config
+
+try:
+    from config.settings import Config
+except ImportError:  # pragma: no cover
+    from .config.settings import Config
 
 app = create_app()
 
