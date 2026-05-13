@@ -5,7 +5,7 @@ import logging
 
 from flask import Flask
 
-from config.settings import Config
+from ..config.settings import Config
 
 from .extensions import init_redis, login_manager, mongo, server_session
 

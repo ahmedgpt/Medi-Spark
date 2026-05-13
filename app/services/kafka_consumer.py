@@ -22,8 +22,8 @@ from typing import Any
 from kafka import KafkaConsumer
 from kafka.errors import NoBrokersAvailable
 
-from app.services.kafka_producer import publish
-from config.settings import Config
+from .kafka_producer import publish
+from ...config.settings import Config
 
 logging.basicConfig(
     level=logging.INFO,

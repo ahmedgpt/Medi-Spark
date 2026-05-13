@@ -8,7 +8,7 @@ from typing import Any
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
-from config.settings import Config
+from ...config.settings import Config
 
 log = logging.getLogger(__name__)
 _producer: KafkaProducer | None = None
