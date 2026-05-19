@@ -12,9 +12,11 @@ env/
 
 # Models / data artifacts
 models/*.pkl
-models/*.json
+models/*.json 
 data/**/raw/
 data/**/processed/
+data/**/*.json
+data/**/*.csv
 
 # IDE
 .vscode/
@@ -23,6 +25,8 @@ data/**/processed/
 # OS
 .DS_Store
 Thumbs.db
+
+medispark_audit.md
 
 # Logs
 *.log

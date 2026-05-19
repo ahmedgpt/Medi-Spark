@@ -6,6 +6,12 @@ wtforms==3.1.2
 email-validator==2.1.0
 python-dotenv==1.0.1
 
+# --- Scrapers (WHO fact sheet pipeline + PubMedQA downloader) ---
+requests==2.31.0
+beautifulsoup4==4.12.3
+trafilatura==1.8.0
+datasets==2.18.0
+
 # --- Sessions / Cache ---
 redis==5.0.1
 flask-session==0.6.0
