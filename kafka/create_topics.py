@@ -22,11 +22,12 @@ log = logging.getLogger("create_topics")
 
 
 TOPIC_SPECS = [
-    (Config.TOPIC_SYMPTOM_INPUT, 3, 1),
-    (Config.TOPIC_PREDICTION_RESULT, 3, 1),
-    (Config.TOPIC_CHAT_MESSAGES, 3, 1),
-    (Config.TOPIC_AUDIT_LOG, 3, 1),
-    (Config.TOPIC_ALERT_HIGH_RISK, 1, 1),
+    (Config.TOPIC_SYMPTOM_INPUT,      3, 1),
+    (Config.TOPIC_PREDICTION_RESULT,  3, 1),
+    (Config.TOPIC_CHAT_MESSAGES,      3, 1),
+    (Config.TOPIC_AUDIT_LOG,          3, 1),
+    (Config.TOPIC_ALERT_HIGH_RISK,    1, 1),
+    (Config.TOPIC_RETRAIN_TRIGGER,    1, 1),   # Week 3 — continuous learning
 ]
 
 

@@ -5,7 +5,7 @@ Stack: Flask · Kafka · PySpark · LangChain · FAISS/Chroma · XGBoost · Mong
 
 ---
 
-## Week 1 — Foundation & Setup (Days 1–7) ← **CURRENT**
+## Week 1 — Foundation & Setup (Days 1–7) ✅ DONE
 **Goal:** Environment ready, basic Flask app running, Kafka integrated, baseline ML model trained.
 
 | Day | Task | Deliverable |
@@ -19,13 +19,13 @@ Stack: Flask · Kafka · PySpark · LangChain · FAISS/Chroma · XGBoost · Mong
 
 ---
 
-## Week 2 — Core AI Engine (Days 8–14)
+## Week 2 — Core AI Engine (Days 8–14) ✅ DONE
 - **Days 8–9:** RAG engine — chunk medical PDFs, embed with sentence-transformers, store in FAISS/Chroma, build retrieval chain (`app/services/rag_engine.py`).
 - **Days 10–11:** Disease prediction pipeline — top-3 diseases + confidence + severity 0–100 (`app/services/ml_predictor.py`, `severity_scorer.py`).
 - **Days 12–13:** Risk assessor (HIGH/MED/LOW) + diagnostic test suggester (`app/services/risk_assessor.py`).
 - **Day 14:** Medicine suggester — vector lookup + LLM dosage generation, OTC vs prescription (`app/services/medicine_suggester.py`).
 
-## Week 3 — Smart Features + PySpark (Days 15–21)
+## Week 3 — Smart Features + PySpark (Days 15–21) ← **CURRENT**
 - **Days 15–16:** Multi-turn chatbot with LangChain `ConversationBufferMemory`; stream messages via Kafka.
 - **Days 17–18:** Roman Urdu / English NLP — language detection + `deep-translator` + custom medical dictionary (`app/services/urdu_translator.py`).
 - **Day 19:** PySpark batch job — aggregate symptom logs every 6h into MongoDB trends (`app/spark/batch_processor.py`).

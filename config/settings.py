@@ -54,3 +54,16 @@ class Config:
     # LLM keys (used Week 2)
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+    HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
+
+    # Week 3 — Kafka topic for retraining trigger
+    TOPIC_RETRAIN_TRIGGER = os.getenv("TOPIC_RETRAIN_TRIGGER", "retrain-trigger")
+
+    # Week 3 — PySpark batch aggregation interval (hours)
+    BATCH_INTERVAL_HOURS = int(os.getenv("BATCH_INTERVAL_HOURS", "6"))
+
+    # Week 3 — Minimum accuracy improvement (%) to auto-deploy new model
+    MODEL_AB_THRESHOLD = float(os.getenv("MODEL_AB_THRESHOLD", "2.0"))
+
+    # Week 3 — Minimum new samples needed before triggering retraining
+    MIN_RETRAIN_SAMPLES = int(os.getenv("MIN_RETRAIN_SAMPLES", "50"))

@@ -35,3 +35,7 @@ logs/
 # Docker volumes
 docker/volumes/
 data/chromadb/ 
+
+
+# Proposal
+mediSpark_purposal_FINAL.pdf
