@@ -139,18 +139,19 @@ def detect_language(text: str) -> str:
         return "urdu"
 
     tokens = set(text.lower().split())
+    # Need at least 2 hint matches to avoid false positives on English
     overlap = tokens & _ROMAN_URDU_HINTS
-    if len(overlap) >= 1:
+    if len(overlap) >= 2:
         return "roman_urdu"
 
-    # Try langdetect as a fallback
-    try:
-        from langdetect import detect, LangDetectException
-        detected = detect(text)
-        if detected in ("ur", "hi", "pa"):   # Urdu / Hindi / Punjabi romanised
-            return "roman_urdu"
-    except Exception:  # noqa: BLE001 — langdetect not installed or fails
-        pass
+    # Single-word match only for strong medical terms (not common words like 'hai', 'se')
+    _strong_hints = {
+        "bukhar", "dard", "khansi", "matli", "ulti", "qay", "dast",
+        "kamzori", "thakaan", "chakkar", "sujan", "khujli", "daane",
+        "zukam", "nazla", "saans", "tabiyat", "mujhe",
+    }
+    if len(tokens & _strong_hints) >= 1:
+        return "roman_urdu"
 
     return "english"
 

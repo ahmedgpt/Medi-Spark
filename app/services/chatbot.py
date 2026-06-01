@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,8 @@ log = logging.getLogger(__name__)
 # Redis key pattern for conversation history
 _REDIS_KEY_PREFIX = "medispark:chat_history:"
 _MAX_HISTORY = 20       # messages to keep per user (10 exchanges)
+_RAG_TIMEOUT = 5        # max seconds to wait for RAG retriever to load
+_LLM_TIMEOUT = 15       # max seconds to wait for LLM response
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -93,18 +96,57 @@ def _save_history(user_id: str, history: list[dict]) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 2. RAG RETRIEVER
+# 2. RAG RETRIEVER — background preload so it's ready before first chat
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _get_retriever(k: int = 4):
-    """Return ChromaDB retriever if vector store is available, else None."""
+_cached_retriever = None
+_retriever_loading = False  # True while background thread is loading
+_retriever_lock = threading.Lock()
+
+
+def _preload_retriever():
+    """Background task: loads ChromaDB + embedding model so it's cached for chat."""
+    global _cached_retriever, _retriever_loading
     try:
         from app.services.rag_engine import build_vectorstore
+        log.info("[Chatbot] Background: loading RAG retriever (this may take 15-30s)…")
         vs = build_vectorstore()
-        return vs.as_retriever(search_kwargs={"k": k})
+        _cached_retriever = vs.as_retriever(search_kwargs={"k": 4})
+        log.info("[Chatbot] ✅ RAG retriever loaded and cached — chat will now use medical knowledge base.")
     except Exception as exc:  # noqa: BLE001
-        log.warning("[Chatbot] RAG retriever unavailable: %s", exc)
-        return None
+        log.warning("[Chatbot] RAG retriever could not be loaded: %s — chat will use rule-based mode.", exc)
+    finally:
+        _retriever_loading = False
+
+
+def start_preload():
+    """Start background preloading of the RAG retriever. Safe to call multiple times."""
+    global _retriever_loading
+    with _retriever_lock:
+        if _cached_retriever is not None or _retriever_loading:
+            return  # already loaded or loading
+        _retriever_loading = True
+    t = threading.Thread(target=_preload_retriever, daemon=True, name="rag-preload")
+    t.start()
+
+
+# Kick off preload at import time (runs in background, doesn't block)
+start_preload()
+
+
+def _get_retriever(k: int = 4):
+    """
+    Return ChromaDB retriever if loaded, else None.
+    Never blocks — if the background preload hasn't finished, returns None
+    (rule-based is used for that request) and the next request will find it cached.
+    """
+    if _cached_retriever is not None:
+        return _cached_retriever
+
+    if _retriever_loading:
+        log.info("[Chatbot] RAG still loading in background — using rule-based for this request.")
+
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -301,7 +343,7 @@ def chat(user_id: str, message: str) -> dict:
     # 2. Load conversation history
     history = _load_history(user_id)
 
-    # 3. Retrieve RAG context
+    # 3. Retrieve RAG context (with timeout — never blocks the response)
     context_docs: list[str] = []
     retriever = _get_retriever(k=4)
     if retriever:
@@ -311,15 +353,28 @@ def chat(user_id: str, message: str) -> dict:
         except Exception as exc:  # noqa: BLE001
             log.warning("[Chatbot] Retriever error: %s", exc)
 
-    # 4. Generate reply
+    # 4. Generate reply (LLM with timeout, then rule-based fallback)
     llm = _get_llm()
     reply = ""
 
     if llm and retriever:
-        reply = _build_langchain_reply(translated_msg, history, llm, retriever)
+        # Run LLM call in a thread with timeout
+        llm_result = [""]
+
+        def _llm_call():
+            llm_result[0] = _build_langchain_reply(translated_msg, history, llm, retriever)
+
+        llm_thread = threading.Thread(target=_llm_call, daemon=True)
+        llm_thread.start()
+        llm_thread.join(timeout=_LLM_TIMEOUT)
+
+        if llm_thread.is_alive():
+            log.warning("[Chatbot] LLM timed out after %ds — using rule-based fallback.", _LLM_TIMEOUT)
+        else:
+            reply = llm_result[0]
 
     if not reply:
-        # Rule-based fallback (works without any API key)
+        # Rule-based fallback — instant, no network, always works
         reply = _rule_based_reply(translated_msg, context_docs)
 
     # 5. Update history
