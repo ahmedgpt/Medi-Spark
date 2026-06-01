@@ -20,6 +20,12 @@ def predict_page():
     return render_template("predict.html")
 
 
+@dashboard_bp.route("/chat")
+@login_required
+def chat_page():
+    return render_template("chat.html")
+
+
 @dashboard_bp.route("/history")
 @login_required
 def history_page():

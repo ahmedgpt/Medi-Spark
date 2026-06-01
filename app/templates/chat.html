@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Chat — Health Assistant{% endblock %}
+{% block content %}
+<div class="chat-container">
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <span class="chat-icon">💬</span>
+      <div>
+        <h2>MediSpark Health Assistant</h2>
+        <p class="chat-subtitle">Ask about symptoms, medicines, or health advice — English or Roman Urdu</p>
+      </div>
+    </div>
+    <button id="chat-reset-btn" class="btn-icon" title="Clear conversation">🗑️</button>
+  </div>
+
+  <div id="chat-messages" class="chat-messages">
+    <!-- Welcome message -->
+    <div class="message bot">
+      <div class="message-avatar">🩺</div>
+      <div class="message-bubble">
+        <p>Assalamu Alaikum! I'm your <strong>MediSpark</strong> health assistant.</p>
+        <p>You can ask me about symptoms, diseases, medicines, or health advice in <strong>English</strong> or <strong>Roman Urdu</strong>.</p>
+        <p class="message-examples">
+          Try: <em>"I have fever and headache"</em> or <em>"mujhe bukhar aur sar dard hai"</em>
+        </p>
+        <p class="disclaimer">⚠️ This is general health information, not a substitute for professional medical advice.</p>
+      </div>
+    </div>
+  </div>
+
+  <form id="chat-form" class="chat-input-area">
+    <div class="chat-input-wrapper">
+      <textarea id="chat-input" rows="1" placeholder="Type your message… (English or Roman Urdu)" autocomplete="off"></textarea>
+      <button type="submit" id="chat-send-btn" class="btn-send" title="Send message">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+    <div class="chat-input-footer">
+      <span id="chat-lang-badge" class="lang-badge" style="display:none;"></span>
+      <span class="chat-hint">Press Enter to send · Shift+Enter for new line</span>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}
