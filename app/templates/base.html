@@ -3,14 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="MediSpark — Intelligent Symptom Analysis & Healthcare Advisory Platform">
   <title>{{ app_name }} — {% block title %}Healthcare Advisor{% endblock %}</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="{{ url_for('dashboard.index') }}">🩺 {{ app_name }}</a>
     <nav>
       {% if current_user.is_authenticated %}
+        <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
         <a href="{{ url_for('dashboard.predict_page') }}">Predict</a>
         <a href="{{ url_for('dashboard.chat_page') }}">Chat</a>
         <a href="{{ url_for('dashboard.history_page') }}">History</a>

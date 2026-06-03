@@ -36,6 +36,9 @@ def chat():
     if not message:
         return jsonify({"error": "Empty message."}), 400
 
+    if len(message) > 1000:
+        return jsonify({"error": "Message too long. Maximum 1000 characters."}), 400
+
     try:
         result = chatbot_chat(
             user_id=str(current_user.id),

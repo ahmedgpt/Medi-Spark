@@ -47,3 +47,7 @@ langdetect==1.0.9
 
 # --- Week 3: Big Data ---
 pyspark==3.5.0
+
+# --- Week 4: Security & Testing ---
+flask-limiter==3.5.0
+pytest==8.0.0

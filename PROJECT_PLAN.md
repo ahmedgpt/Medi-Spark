@@ -25,13 +25,13 @@ Stack: Flask · Kafka · PySpark · LangChain · FAISS/Chroma · XGBoost · Mong
 - **Days 12–13:** Risk assessor (HIGH/MED/LOW) + diagnostic test suggester (`app/services/risk_assessor.py`).
 - **Day 14:** Medicine suggester — vector lookup + LLM dosage generation, OTC vs prescription (`app/services/medicine_suggester.py`).
 
-## Week 3 — Smart Features + PySpark (Days 15–21) ← **CURRENT**
+## Week 3 — Smart Features + PySpark (Days 15–21) ✅ DONE
 - **Days 15–16:** Multi-turn chatbot with LangChain `ConversationBufferMemory`; stream messages via Kafka.
 - **Days 17–18:** Roman Urdu / English NLP — language detection + `deep-translator` + custom medical dictionary (`app/services/urdu_translator.py`).
 - **Day 19:** PySpark batch job — aggregate symptom logs every 6h into MongoDB trends (`app/spark/batch_processor.py`).
 - **Days 20–21:** Continuous learning — collect new data, retrain via PySpark, A/B test, auto-deploy.
 
-## Week 4 — Polish, Integration & Deployment (Days 22–28)
+## Week 4 — Polish, Integration & Deployment (Days 22–28) ✅ DONE
 - **Days 22–23:** UI/UX polish — Chart.js dashboards, severity gauge, risk badge, print/download.
 - **Days 24–25:** Docker Compose with all services (flask-app, kafka, zookeeper, pyspark, mongodb, redis, chromadb).
 - **Day 26:** Tests — unit/integration + Locust load test (100 concurrent).

@@ -4,6 +4,7 @@ Endpoint: POST /api/predict
 """
 
 from flask import Blueprint, request, jsonify
+from flask_login import login_required
 
 from app.services.ml_predictor       import predict_diseases
 from app.services.rag_engine         import retrieve
@@ -16,6 +17,7 @@ predict_bp = Blueprint("predict", __name__)
 
 
 @predict_bp.route("/predict", methods=["POST"])
+@login_required
 def predict():
     """
     Full prediction pipeline:
@@ -38,6 +40,12 @@ def predict():
 
     if not symptoms:
         return jsonify({"error": "No symptoms provided"}), 400
+
+    # Input validation — max 20 symptoms, max 200 chars each
+    if len(symptoms) > 20:
+        return jsonify({"error": "Maximum 20 symptoms allowed."}), 400
+    if any(len(str(s)) > 200 for s in symptoms):
+        return jsonify({"error": "Each symptom must be under 200 characters."}), 400
 
     # ── Step 1: ML Prediction ─────────────────────────────────────────────────
     try:

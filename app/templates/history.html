@@ -2,22 +2,66 @@
 {% block title %}History{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>Your consultation history</h2>
+  <div class="history-header">
+    <h2>📜 Consultation History</h2>
+    <input type="text" id="history-search" class="search-input" placeholder="🔍 Search symptoms or diseases…">
+  </div>
   <div id="history-list">Loading…</div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
+const searchInput = document.getElementById('history-search');
+const root = document.getElementById('history-list');
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+function renderHistory(items) {
+  if (!items || !items.length) {
+    root.innerHTML = '<p class="no-data">No consultations yet. Run a symptom check to start.</p>';
+    return;
+  }
+  root.innerHTML = items.map(i => {
+    const riskClass = (i.risk_level || 'unknown').toLowerCase();
+    const date = i.created_at ? new Date(i.created_at).toLocaleString() : '—';
+    const symptoms = (i.symptoms || []).join(', ');
+    const disease = i.top_disease || i.prediction || 'Queued';
+    const severity = i.severity != null ? i.severity : '—';
+    return `
+      <div class="history-card" data-search="${escapeHtml((symptoms + ' ' + disease).toLowerCase())}">
+        <div class="history-card-top">
+          <span class="history-date">${escapeHtml(date)}</span>
+          <span class="risk-badge ${riskClass}">${escapeHtml(i.risk_level || 'QUEUED')}</span>
+        </div>
+        <div class="history-card-body">
+          <div class="history-disease">${escapeHtml(disease)}</div>
+          <div class="history-symptoms">${escapeHtml(symptoms || 'No symptoms recorded')}</div>
+          <div class="history-meta">
+            Duration: ${i.duration_days || '—'} day(s) · Age: ${i.age || '—'} · Severity: ${severity}/100
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 fetch('/api/history').then(r => r.json()).then(data => {
-  const root = document.getElementById('history-list');
-  if (!data.items || !data.items.length) { root.textContent = 'No records yet.'; return; }
-  root.innerHTML = data.items.map(i => `
-    <div class="history-item">
-      <strong>${new Date(i.created_at).toLocaleString()}</strong>
-      <div>Symptoms: ${(i.symptoms || []).join(', ')}</div>
-      <div>Duration: ${i.duration_days} day(s) · Age: ${i.age ?? '—'}</div>
-      <div>Status: ${i.prediction ? 'Predicted' : 'Queued'}</div>
-    </div>`).join('');
+  renderHistory(data.items);
+}).catch(() => {
+  root.innerHTML = '<p class="no-data">Could not load history.</p>';
 });
+
+// Live search filter
+if (searchInput) {
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.toLowerCase();
+    document.querySelectorAll('.history-card').forEach(card => {
+      card.style.display = card.dataset.search.includes(q) ? '' : 'none';
+    });
+  });
+}
 </script>
 {% endblock %}

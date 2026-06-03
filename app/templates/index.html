@@ -1,18 +1,100 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<div class="card">
-  <h1>Welcome, {{ current_user.name or current_user.email }}</h1>
-  <p>MediSpark analyses your symptoms and offers AI-assisted advice.</p>
-  <div class="grid-2">
-    <a class="tile" href="{{ url_for('dashboard.predict_page') }}">
-      <h3>🔍 New Symptom Check</h3>
-      <p>Submit symptoms and get a risk-graded prediction.</p>
+<div class="dashboard">
+  <!-- Hero greeting -->
+  <div class="card hero-card">
+    <div class="hero-left">
+      <h1>Welcome back, {{ current_user.name or current_user.email }} 👋</h1>
+      <p class="hero-sub">MediSpark analyses your symptoms and offers AI-assisted health guidance.</p>
+      <div class="hero-actions">
+        <a class="btn primary" href="{{ url_for('dashboard.predict_page') }}">🔍 New Symptom Check</a>
+        <a class="btn outline" href="{{ url_for('dashboard.chat_page') }}">💬 Chat with AI</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-icon">📊</div>
+      <div class="stat-info">
+        <span class="stat-value" id="stat-total">—</span>
+        <span class="stat-label">Total Consultations</span>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🩺</div>
+      <div class="stat-info">
+        <span class="stat-value" id="stat-disease">—</span>
+        <span class="stat-label">Latest Prediction</span>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⚡</div>
+      <div class="stat-info">
+        <span class="stat-value" id="stat-severity">—</span>
+        <span class="stat-label">Latest Severity</span>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon risk-icon" id="stat-risk-icon">🟢</div>
+      <div class="stat-info">
+        <span class="stat-value" id="stat-risk">—</span>
+        <span class="stat-label">Risk Level</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts row -->
+  <div class="charts-row">
+    <div class="card chart-card">
+      <h3>🎯 Severity Gauge</h3>
+      <div class="gauge-wrapper">
+        <canvas id="severity-gauge" width="220" height="220"></canvas>
+        <div class="gauge-center" id="gauge-label">—</div>
+      </div>
+    </div>
+    <div class="card chart-card">
+      <h3>📈 Risk Distribution</h3>
+      <canvas id="risk-chart" height="220"></canvas>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="card chart-card wide">
+      <h3>🏥 Top Disease Trends</h3>
+      <canvas id="disease-chart" height="180"></canvas>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="card chart-card wide">
+      <h3>📉 Severity Over Time</h3>
+      <canvas id="severity-history-chart" height="160"></canvas>
+    </div>
+  </div>
+
+  <!-- Quick tiles -->
+  <div class="grid-3">
+    <a class="tile tile-predict" href="{{ url_for('dashboard.predict_page') }}">
+      <span class="tile-emoji">🔍</span>
+      <h3>Symptom Check</h3>
+      <p>Submit symptoms for AI analysis</p>
     </a>
-    <a class="tile" href="{{ url_for('dashboard.history_page') }}">
-      <h3>📜 History</h3>
-      <p>Review your previous consultations.</p>
+    <a class="tile tile-chat" href="{{ url_for('dashboard.chat_page') }}">
+      <span class="tile-emoji">💬</span>
+      <h3>Health Chat</h3>
+      <p>Ask questions in English or Urdu</p>
+    </a>
+    <a class="tile tile-history" href="{{ url_for('dashboard.history_page') }}">
+      <span class="tile-emoji">📜</span>
+      <h3>History</h3>
+      <p>Review past consultations</p>
     </a>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}
