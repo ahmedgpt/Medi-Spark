@@ -1,17 +1,22 @@
 """
 Day 10-11: Predict route — wires ML + RAG + Severity + Risk + Medicine together.
 Endpoint: POST /api/predict
+Week 4: Added MongoDB persistence (SymptomLog), Flask-Limiter rate limit, login_required.
 """
+from __future__ import annotations
 
-from flask import Blueprint, request, jsonify
-from flask_login import login_required
+import logging
+
+from flask import Blueprint, current_app, request, jsonify
+from flask_login import current_user, login_required
 
 from app.services.ml_predictor       import predict_diseases
-from app.services.rag_engine         import retrieve
 from app.services.severity_scorer    import calculate_severity
 from app.services.risk_assessor      import assess_risk
 from app.services.medicine_suggester import suggest_medicines
 from app.services import kafka_producer
+
+log = logging.getLogger(__name__)
 
 predict_bp = Blueprint("predict", __name__)
 
@@ -21,17 +26,22 @@ predict_bp = Blueprint("predict", __name__)
 def predict():
     """
     Full prediction pipeline:
-    1. Receive symptoms + duration + age
+    1. Receive + sanitize symptoms + duration + age
     2. ML prediction (top 3 diseases)
     3. Severity score + risk assessment
     4. RAG retrieval (medical knowledge)
     5. Medicine suggestions
-    6. Kafka event publish
+    6. Persist to MongoDB (SymptomLog)  ← Week 4 fix
+    7. Kafka event publish
     """
     data = request.get_json(silent=True) or {}
 
     # ── Input extraction ───────────────────────────────────────────────────────
     symptoms = data.get("symptoms", [])
+    if isinstance(symptoms, str):
+        # Support comma-separated string as well as list
+        symptoms = [s.strip() for s in symptoms.split(",") if s.strip()]
+
     try:
         duration = int(data.get("duration_days", 1))
         age      = int(data.get("age", 30))
@@ -62,11 +72,12 @@ def predict():
 
     # ── Step 3: RAG Retrieval ─────────────────────────────────────────────────
     try:
+        from app.services.rag_engine import retrieve
         rag_query   = f"What are the symptoms and treatment of {top_disease}?"
         rag_results = retrieve(rag_query, k=3)
     except Exception as e:
         rag_results = []
-        print(f"[WARN] RAG retrieval failed: {e}")
+        log.warning("[Predict] RAG retrieval failed: %s", e)
 
     # ── Step 4: Medicine Suggestions ─────────────────────────────────────────
     try:
@@ -74,7 +85,27 @@ def predict():
     except Exception as e:
         medicines = {"error": str(e)}
 
-    # ── Step 5: Publish to Kafka ──────────────────────────────────────────────
+    # ── Step 5: Persist to MongoDB ────────────────────────────────────────────
+    log_id = None
+    try:
+        from app.models.symptom_log import SymptomLog
+        log_id = SymptomLog.create_full(
+            user_id       = str(current_user.id),
+            symptoms      = symptoms,
+            duration_days = duration,
+            age           = age,
+            language      = data.get("language", "english"),
+            raw_text      = ", ".join(symptoms),
+            top_disease   = top_disease,
+            severity      = risk.get("severity_score", 0),
+            risk_level    = risk.get("risk_level", "UNKNOWN"),
+            predictions   = predictions,
+        )
+        log.info("[Predict] Saved log_id=%s for user=%s", log_id, current_user.id)
+    except Exception as e:
+        log.warning("[Predict] MongoDB persist failed (non-fatal): %s", e)
+
+    # ── Step 6: Publish to Kafka ──────────────────────────────────────────────
     try:
         kafka_producer.publish("symptom-input", {
             "symptoms":    symptoms,
@@ -82,7 +113,8 @@ def predict():
             "age":         age,
             "top_disease": top_disease,
             "risk_level":  risk["risk_level"],
-            "severity":    risk["severity_score"]
+            "severity":    risk["severity_score"],
+            "log_id":      log_id,
         })
     except Exception:
         pass  # Don't fail the request if Kafka is down

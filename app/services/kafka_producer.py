@@ -1,27 +1,29 @@
-"""Kafka producer singleton — JSON values, UTF-8 keys."""
+"""Kafka producer singleton — JSON values, UTF-8 keys.
+Degrades gracefully when kafka-python is not installed or no brokers are available.
+"""
 from __future__ import annotations
 
 import json
 import logging
 from typing import Any
 
-from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
-
-try:
-    from config.settings import Config
-except ImportError:  # pragma: no cover
-    from ...config.settings import Config
-
 log = logging.getLogger(__name__)
-_producer: KafkaProducer | None = None
+_producer = None
 
 
-def get_producer() -> KafkaProducer:
+def get_producer():
     global _producer
     if _producer is not None:
         return _producer
     try:
+        from kafka import KafkaProducer
+        from kafka.errors import NoBrokersAvailable
+
+        try:
+            from config.settings import Config
+        except ImportError:  # pragma: no cover
+            from ...config.settings import Config
+
         _producer = KafkaProducer(
             bootstrap_servers=Config.KAFKA_BOOTSTRAP_SERVERS,
             client_id=Config.KAFKA_CLIENT_ID,
@@ -32,12 +34,20 @@ def get_producer() -> KafkaProducer:
             linger_ms=20,
         )
         log.info("Kafka producer connected to %s", Config.KAFKA_BOOTSTRAP_SERVERS)
-    except NoBrokersAvailable as exc:
-        log.error("No Kafka brokers available at %s", Config.KAFKA_BOOTSTRAP_SERVERS)
-        raise exc
-    return _producer
+        return _producer
+    except ImportError:
+        log.warning("kafka-python not installed — Kafka publishing disabled.")
+        return None
+    except Exception as exc:
+        log.warning("Kafka producer init failed: %s — publishing disabled.", exc)
+        return None
 
 
 def publish(topic: str, value: dict[str, Any], key: str | None = None) -> None:
-    """Convenience wrapper used by services."""
-    get_producer().send(topic, value=value, key=key)
+    """Convenience wrapper used by services. No-op if Kafka is unavailable."""
+    producer = get_producer()
+    if producer is not None:
+        try:
+            producer.send(topic, value=value, key=key)
+        except Exception as exc:
+            log.warning("Kafka publish to '%s' failed: %s", topic, exc)

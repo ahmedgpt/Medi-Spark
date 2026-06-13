@@ -134,6 +134,42 @@ def start_preload():
 start_preload()
 
 
+# ── Ollama warm-up ────────────────────────────────────────────────────────────
+# The first Ollama call loads model weights into GPU/RAM (~50s on 2GB VRAM).
+# Warm-up at startup so user's first chat message doesn't wait.
+_ollama_warm = False
+
+def _warmup_ollama():
+    """Send a tiny prompt to Ollama to force model loading into memory."""
+    global _ollama_warm
+    import requests as req
+    url   = os.getenv("OLLAMA_URL", "http://localhost:11434")
+    model = os.getenv("OLLAMA_MODEL", "gemma3:1b")
+    try:
+        log.info("[Chatbot] Warming up Ollama (%s) — loading model into memory ...", model)
+        resp = req.post(
+            f"{url}/api/chat",
+            json={
+                "model":   model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream":  False,
+                "options": {"num_predict": 1},  # generate just 1 token
+            },
+            timeout=120,
+        )
+        if resp.status_code == 200:
+            _ollama_warm = True
+            log.info("[Chatbot] Ollama warm-up complete — model loaded and ready.")
+        else:
+            log.warning("[Chatbot] Ollama warm-up got status %d.", resp.status_code)
+    except req.ConnectionError:
+        log.warning("[Chatbot] Ollama not reachable at %s — will retry on first chat.", url)
+    except Exception as exc:
+        log.warning("[Chatbot] Ollama warm-up failed: %s", exc)
+
+threading.Thread(target=_warmup_ollama, daemon=True, name="ollama-warmup").start()
+
+
 def _get_retriever(k: int = 4):
     """
     Return ChromaDB retriever if loaded, else None.
@@ -150,11 +186,144 @@ def _get_retriever(k: int = 4):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3. LLM — Anthropic Claude (primary) → rule-based fallback
+# 3. LLM — Ollama (primary) → Cloud API (Anthropic/OpenAI) → rule-based
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _get_llm():
-    """Return a LangChain LLM object, or None if no API key is configured."""
+# Ollama config (read from env / settings.py)
+_OLLAMA_URL     = os.getenv("OLLAMA_URL",     "http://localhost:11434")
+_OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL",   "gemma3:1b")
+_OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "90"))  # first call loads model ~50s
+
+_SYSTEM_PROMPT = (
+    "You are MediSpark, a friendly medical health assistant for patients in Pakistan. "
+    "IMPORTANT RULES:\n"
+    "1. Reply ONLY in plain English. Never output symbols, numbers, code blocks, or non-English scripts.\n"
+    "2. If the user greets you (e.g. 'hello', 'hi', 'kaise ho', 'how are you'), respond with a short friendly greeting and ask how you can help with their health today.\n"
+    "3. For health/medical questions: give (a) likely causes, (b) safe home remedies, (c) when to see a doctor.\n"
+    "4. Keep every reply under 150 words.\n"
+    "5. End medical replies with: This is general health information. Please consult a qualified doctor."
+)
+
+
+# ── Greeting / casual interceptor ────────────────────────────────────────────
+# Catches simple social phrases before they reach Ollama.
+# gemma3:1b hallucinates badly when a medical system-prompt meets a casual hi.
+_GREETINGS_EN = {
+    "hi", "hello", "hey", "hiya", "howdy", "greetings",
+    "how are you", "how r u", "how are u", "whats up", "what's up", "sup",
+    "good morning", "good afternoon", "good evening", "good night",
+    "assalam", "assalamualaikum", "salam", "aoa",
+}
+_GREETINGS_UR = {
+    "kaise ho", "kaise hain", "kaisy ho", "kesy ho", "ap kaise hain",
+    "theek ho", "theek hain", "kem cho", "kiddan",
+    "adaab", "sat sri akal",
+}
+_GREETING_RESPONSE = (
+    "Hello! I'm MediSpark, your medical health assistant. "
+    "I'm doing great, thank you for asking! 😊 "
+    "How can I help you with your health today? "
+    "Feel free to describe any symptoms or ask a medical question."
+)
+
+
+def _check_greeting(message: str) -> str:
+    """Return a greeting reply if the message is a casual greeting, else empty string."""
+    clean = message.strip().lower().rstrip("!?., ")
+    if clean in _GREETINGS_EN or clean in _GREETINGS_UR:
+        return _GREETING_RESPONSE
+    # Also catch short greetings embedded in slightly longer phrases
+    for g in _GREETINGS_UR:
+        if clean == g or clean.startswith(g + " ") or clean.endswith(" " + g):
+            return _GREETING_RESPONSE
+    return ""
+
+
+def _build_ollama_messages(
+    message: str,
+    history: list[dict],
+    context_docs: list[str],
+) -> list[dict]:
+    """
+    Build the Ollama chat message list:
+    [system] + optional [RAG context as system] + [history] + [user message]
+    """
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+
+    # Inject RAG context as a second system message so the LLM can reference it
+    if context_docs:
+        rag_text = "\n\n".join(doc[:300] for doc in context_docs[:2])
+        messages.append({
+            "role": "system",
+            "content": (
+                "Relevant medical reference (use if helpful):\n\n" + rag_text
+            ),
+        })
+
+    # Add recent conversation history (last 4 messages = 2 exchanges)
+    for entry in history[-4:]:
+        role = "user" if entry["role"] == "human" else "assistant"
+        messages.append({"role": role, "content": entry["content"]})
+
+    # Current user message
+    messages.append({"role": "user", "content": message})
+
+    return messages
+
+
+def _call_ollama(
+    message: str,
+    history: list[dict],
+    context_docs: list[str],
+) -> str:
+    """
+    Call the local Ollama server via its /api/chat REST endpoint.
+    Uses only the `requests` library (already a project dependency).
+    Returns the assistant reply text, or "" on any failure.
+    """
+    import requests as req
+
+    messages = _build_ollama_messages(message, history, context_docs)
+
+    try:
+        resp = req.post(
+            f"{_OLLAMA_URL}/api/chat",
+            json={
+                "model":   _OLLAMA_MODEL,
+                "messages": messages,
+                "stream":  False,
+                "options": {
+                    "temperature":   0.3,     # lower = more focused, less hallucination
+                    "num_predict":   250,     # cap tokens to prevent runaway output
+                    "top_p":         0.85,
+                    "top_k":         40,
+                    "repeat_penalty": 1.3,   # strongly penalise repetitive/looping output
+                    "stop": ["\n\n\n", "###", "```"],  # stop at code blocks / triple newlines
+                },
+            },
+            timeout=_OLLAMA_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        reply = data.get("message", {}).get("content", "").strip()
+        if reply:
+            log.info("[Chatbot] Ollama (%s) replied in %.1fs",
+                     _OLLAMA_MODEL, data.get("total_duration", 0) / 1e9)
+        return reply
+
+    except req.ConnectionError:
+        log.warning("[Chatbot] Ollama not reachable at %s — falling back.", _OLLAMA_URL)
+        return ""
+    except req.Timeout:
+        log.warning("[Chatbot] Ollama timed out after %ds.", _OLLAMA_TIMEOUT)
+        return ""
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[Chatbot] Ollama error: %s", exc)
+        return ""
+
+
+def _get_cloud_llm():
+    """Return a LangChain LLM object (Anthropic or OpenAI), or None."""
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if api_key:
         try:
@@ -172,7 +341,7 @@ def _get_llm():
         except Exception as exc:  # noqa: BLE001
             log.warning("[Chatbot] OpenAI LLM init failed: %s", exc)
 
-    return None   # will trigger rule-based fallback
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -322,61 +491,8 @@ def _rule_based_reply(message: str, context_docs: list[str], history: Optional[l
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 5. LANGCHAIN CONVERSATIONAL CHAIN
-# ══════════════════════════════════════════════════════════════════════════════
-
-_SYSTEM_PROMPT = """You are MediSpark, an intelligent medical assistant for patients in Pakistan.
-You provide clear, accurate health information in simple language.
-When asked about symptoms, provide:
-1. Likely causes
-2. When to see a doctor (urgency)
-3. Safe home remedies if appropriate
-4. Recommended tests if relevant
-
-Always end with: "⚠️ This is general health information. Please consult a qualified doctor for diagnosis and treatment."
-You understand both English and Roman Urdu medical terms."""
-
-
-def _build_langchain_reply(
-    message: str,
-    history: list[dict],
-    llm,
-    retriever,
-) -> str:
-    """Build reply using LangChain ConversationalRetrievalChain."""
-    try:
-        from langchain.memory import ConversationBufferMemory
-        from langchain.chains import ConversationalRetrievalChain
-        from langchain.prompts import PromptTemplate
-
-        # Rebuild in-memory LangChain memory from stored history
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True,
-            output_key="answer",
-        )
-        for entry in history[-10:]:  # last 5 exchanges
-            if entry["role"] == "human":
-                memory.chat_memory.add_user_message(entry["content"])
-            else:
-                memory.chat_memory.add_ai_message(entry["content"])
-
-        # Build chain
-        chain = ConversationalRetrievalChain.from_llm(
-            llm=llm,
-            retriever=retriever,
-            memory=memory,
-            return_source_documents=False,
-            verbose=False,
-        )
-
-        result = chain({"question": f"{_SYSTEM_PROMPT}\n\nUser: {message}"})
-        return result.get("answer", "").strip()
-
-    except Exception as exc:  # noqa: BLE001
-        log.error("[Chatbot] LangChain chain error: %s", exc)
-        return ""
+# (Section 5 removed — LangChain ConversationalRetrievalChain replaced by
+#  direct Ollama /api/chat calls which handle multi-turn natively.)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -407,6 +523,11 @@ def chat(user_id: str, message: str) -> dict:
     """
     Process a chat message from *user_id* and return a response dict.
 
+    LLM priority chain:
+        1. Ollama (local, free, no API key)  ← gemma3:1b
+        2. Anthropic Claude / OpenAI         ← cloud fallback
+        3. Rule-based fallback               ← always works
+
     Returns
     -------
     {
@@ -414,6 +535,7 @@ def chat(user_id: str, message: str) -> dict:
         "detected_lang":  str,        # 'english' | 'urdu' | 'roman_urdu'
         "translated":     str | None, # English translation (if input wasn't English)
         "sources":        list[str],  # RAG source snippets used
+        "llm_source":     str,        # 'ollama' | 'anthropic' | 'openai' | 'rule-based'
     }
     """
     from app.services.urdu_translator import detect_language, translate_to_english
@@ -422,14 +544,14 @@ def chat(user_id: str, message: str) -> dict:
     detected_lang = detect_language(message)
     if detected_lang != "english":
         translated_msg = translate_to_english(message)
-        log.info("[Chatbot] Translated '%s' → '%s'", message[:60], translated_msg[:60])
+        log.info("[Chatbot] Translated '%s' -> '%s'", message[:60], translated_msg[:60])
     else:
         translated_msg = message
 
     # 2. Load conversation history
     history = _load_history(user_id)
 
-    # 3. Retrieve RAG context (with timeout — never blocks the response)
+    # 3. Retrieve RAG context (non-blocking)
     context_docs: list[str] = []
     retriever = _get_retriever(k=4)
     if retriever:
@@ -439,29 +561,57 @@ def chat(user_id: str, message: str) -> dict:
         except Exception as exc:  # noqa: BLE001
             log.warning("[Chatbot] Retriever error: %s", exc)
 
-    # 4. Generate reply (LLM with timeout, then rule-based fallback)
-    llm = _get_llm()
+    # 4. Generate reply — LLM priority chain
     reply = ""
+    llm_source = "rule-based"
 
-    if llm and retriever:
-        # Run LLM call in a thread with timeout
-        llm_result = [""]
-
-        def _llm_call():
-            llm_result[0] = _build_langchain_reply(translated_msg, history, llm, retriever)
-
-        llm_thread = threading.Thread(target=_llm_call, daemon=True)
-        llm_thread.start()
-        llm_thread.join(timeout=_LLM_TIMEOUT)
-
-        if llm_thread.is_alive():
-            log.warning("[Chatbot] LLM timed out after %ds — using rule-based fallback.", _LLM_TIMEOUT)
-        else:
-            reply = llm_result[0]
-
+    # 4a. Try Ollama (local LLM) first
+    # NOTE: Send the ORIGINAL message, not the translated one.
+    # gemma3:1b understands Roman Urdu / Urdu natively, and the
+    # dictionary-based translation often corrupts the user's intent.
     if not reply:
-        # Rule-based fallback — instant, no network, always works
+        ollama_reply = _call_ollama(message, history, context_docs)
+        if ollama_reply:
+            reply = ollama_reply
+            llm_source = f"ollama/{_OLLAMA_MODEL}"
+
+    # 4b. Try cloud LLM (Anthropic / OpenAI) if Ollama failed
+    if not reply:
+        cloud_llm = _get_cloud_llm()
+        if cloud_llm and retriever:
+            llm_result = [""]
+            def _llm_call():
+                try:
+                    from langchain.memory import ConversationBufferMemory
+                    from langchain.chains import ConversationalRetrievalChain
+                    memory = ConversationBufferMemory(
+                        memory_key="chat_history", return_messages=True, output_key="answer"
+                    )
+                    for entry in history[-10:]:
+                        if entry["role"] == "human":
+                            memory.chat_memory.add_user_message(entry["content"])
+                        else:
+                            memory.chat_memory.add_ai_message(entry["content"])
+                    chain = ConversationalRetrievalChain.from_llm(
+                        llm=cloud_llm, retriever=retriever, memory=memory,
+                        return_source_documents=False, verbose=False,
+                    )
+                    result = chain({"question": f"{_SYSTEM_PROMPT}\n\nUser: {translated_msg}"})
+                    llm_result[0] = result.get("answer", "").strip()
+                except Exception as exc:
+                    log.error("[Chatbot] Cloud LLM error: %s", exc)
+
+            llm_thread = threading.Thread(target=_llm_call, daemon=True)
+            llm_thread.start()
+            llm_thread.join(timeout=_LLM_TIMEOUT)
+            if llm_result[0]:
+                reply = llm_result[0]
+                llm_source = "cloud-llm"
+
+    # 4c. Final fallback — rule-based (instant, no network)
+    if not reply:
         reply = _rule_based_reply(translated_msg, context_docs, history)
+        llm_source = "rule-based"
 
     # 5. Update history
     history.append({"role": "human", "content": message})
@@ -475,7 +625,8 @@ def chat(user_id: str, message: str) -> dict:
         "reply":         reply,
         "detected_lang": detected_lang,
         "translated":    translated_msg if detected_lang != "english" else None,
-        "sources":       context_docs[:2],   # return top-2 snippets to UI
+        "sources":       context_docs[:2],
+        "llm_source":    llm_source,
     }
 
 

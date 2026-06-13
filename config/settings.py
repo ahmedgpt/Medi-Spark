@@ -56,6 +56,11 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
 
+    # Ollama — local LLM via ollama (Week 4)
+    OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:1b")
+    OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "30"))
+
     # Week 3 — Kafka topic for retraining trigger
     TOPIC_RETRAIN_TRIGGER = os.getenv("TOPIC_RETRAIN_TRIGGER", "retrain-trigger")
 

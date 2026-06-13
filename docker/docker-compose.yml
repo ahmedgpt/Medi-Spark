@@ -25,6 +25,8 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
     volumes:
       - ../models:/app/models
       - ../data:/app/data
@@ -93,5 +95,43 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── PySpark (Week 3/4: batch processor + continuous learner) ─────────────────
+  pyspark:
+    image: bitnami/spark:3.5
+    container_name: medispark-spark
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=pyspark
+      - MONGO_URI=mongodb://mongodb:27017/medispark
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    volumes:
+      - ../app/spark:/opt/bitnami/spark/jobs
+      - ../models:/opt/bitnami/spark/models
+      - ../data:/opt/bitnami/spark/data
+    depends_on:
+      - mongodb
+      - kafka
+
+  # ── ChromaDB (Week 2/4: vector store for RAG) ────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:0.4.22
+    container_name: medispark-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
 volumes:
   mongo-data:
+  chroma-data:

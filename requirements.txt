@@ -51,3 +51,4 @@ pyspark==3.5.0
 # --- Week 4: Security & Testing ---
 flask-limiter==3.5.0
 pytest==8.0.0
+locust==2.24.0
