@@ -206,12 +206,98 @@ _SYMPTOM_KEYWORDS = {
                  "Consult a doctor if dizziness is recurrent or associated with chest pain.",
 }
 
+# Keywords that signal the user is asking about medicines / treatment
+_MEDICINE_QUESTION_KEYWORDS = [
+    "medicine", "medication", "drug", "tablet", "pill", "syrup", "injection",
+    "treatment", "treat", "cure", "remedy", "prescri", "antibiotic", "what to take",
+    "what should i take", "what can i take", "how to treat", "dawa", "dawai",
+    "ilaj", "\u0639\u0644\u0627\u062c", "\u062f\u0648\u0627",
+]
 
-def _rule_based_reply(message: str, context_docs: list[str]) -> str:
+
+def _detect_medicine_query(message: str) -> bool:
+    """Return True if the user is asking about medicines or treatment."""
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in _MEDICINE_QUESTION_KEYWORDS)
+
+
+def _find_disease_in_text(text: str) -> Optional[str]:
+    """
+    Try to match a disease name from MEDICINE_DB inside *text*.
+    Returns the exact DB key if found, else None.
+    """
+    from app.services.medicine_suggester import MEDICINE_DB
+    text_lower = text.lower()
+    # Sort by length descending so longer (more specific) names match first
+    for disease in sorted(MEDICINE_DB.keys(), key=len, reverse=True):
+        if disease.lower() in text_lower:
+            return disease
+    return None
+
+
+def _medicine_reply(disease: str) -> str:
+    """Format a structured medicine recommendation card for the given disease."""
+    from app.services.medicine_suggester import suggest_medicines
+    meds = suggest_medicines(disease)
+    otc  = meds.get("otc", [])
+    rx   = meds.get("prescription", [])
+
+    lines = [f"💊 **Recommended medications for {disease}:**", ""]
+
+    if otc:
+        lines.append("**🟢 Over-the-Counter (OTC) — available without prescription:**")
+        for m in otc:
+            lines.append(f"  • {m}")
+        lines.append("")
+
+    if rx:
+        lines.append("**🔴 Prescription medicines (require a doctor's prescription):**")
+        for m in rx:
+            lines.append(f"  • {m}")
+        lines.append("")
+
+    lines.append(
+        "⚠️ *This is general health information only. Do NOT self-medicate with "
+        "prescription drugs. Always consult a qualified doctor before starting any treatment.*"
+    )
+    return "\n".join(lines)
+
+
+def _rule_based_reply(message: str, context_docs: list[str], history: Optional[list] = None) -> str:
     """Generate a helpful rule-based reply when no LLM is available."""
     msg_lower = message.lower()
 
-    # Check for known symptom keywords
+    # ── Medicine / treatment question? ────────────────────────────────────────
+    if _detect_medicine_query(message):
+        # 1. Try to find a disease name in the current message
+        disease = _find_disease_in_text(message)
+
+        # 2. Fall back: scan the last few AI messages in history for a disease
+        if not disease and history:
+            for entry in reversed(history[-10:]):
+                if entry.get("role") == "ai":
+                    disease = _find_disease_in_text(entry.get("content", ""))
+                    if disease:
+                        break
+
+        # 3. Try to find a disease in RAG context docs
+        if not disease:
+            for doc in context_docs:
+                disease = _find_disease_in_text(doc)
+                if disease:
+                    break
+
+        if disease:
+            return _medicine_reply(disease)
+        else:
+            return (
+                "I can provide medication information once I know the specific disease. "
+                "Please first describe your symptoms using the **Symptom Checker**, "
+                "or mention the disease name directly (e.g. 'medicine for typhoid').\n\n"
+                "⚠️ *Always consult a qualified doctor before taking any medication.*"
+            )
+
+    # ── Symptom keywords ──────────────────────────────────────────────────────
     for keyword, response in _SYMPTOM_KEYWORDS.items():
         if keyword in msg_lower:
             reply = f"**{keyword.title()} guidance:**\n{response}"
@@ -220,7 +306,7 @@ def _rule_based_reply(message: str, context_docs: list[str]) -> str:
             reply += "\n\n⚠️ *This is general health information, not medical advice. Please consult a qualified doctor.*"
             return reply
 
-    # Generic response with RAG context
+    # ── Generic response with RAG context ────────────────────────────────────
     if context_docs:
         return (
             f"Based on your query, here is relevant medical information:\n\n"
@@ -230,8 +316,8 @@ def _rule_based_reply(message: str, context_docs: list[str]) -> str:
 
     return (
         "I'm your MediSpark health assistant. I can help with symptom information, "
-        "disease queries, and general health guidance. Please describe your symptoms "
-        "and I'll provide relevant medical information.\n\n"
+        "disease queries, medicine recommendations, and general health guidance. "
+        "Describe your symptoms or ask about a specific disease or medication.\n\n"
         "⚠️ *This is general health information, not a substitute for professional medical advice.*"
     )
 
@@ -375,7 +461,7 @@ def chat(user_id: str, message: str) -> dict:
 
     if not reply:
         # Rule-based fallback — instant, no network, always works
-        reply = _rule_based_reply(translated_msg, context_docs)
+        reply = _rule_based_reply(translated_msg, context_docs, history)
 
     # 5. Update history
     history.append({"role": "human", "content": message})

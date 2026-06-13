@@ -18,10 +18,14 @@ const URDU_MEDICAL_DICT = {
 function parseSymptoms(text, language) {
   const tokens = (text || '')
     .split(/[,\n;]+/)
-    .map(s => s.trim().toLowerCase().replace(/\s+/g, '_'))
+    .map(s => s.trim().toLowerCase())
     .filter(Boolean);
   if (language !== 'ur') return tokens;
-  return tokens.map(t => URDU_MEDICAL_DICT[t] || t);
+  // For Urdu, also try underscore form for dictionary lookup
+  return tokens.map(t => {
+    const key = t.replace(/\s+/g, '_');
+    return URDU_MEDICAL_DICT[key] || URDU_MEDICAL_DICT[t] || t;
+  });
 }
 
 function escapeHtml(s) {
