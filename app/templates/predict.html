@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Symptom check{% endblock %}
+{% block title %}Symptom Check{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>Symptom Check</h2>
+  <h2>🔍 Symptom Check</h2>
+  <p class="card-sub">Enter your symptoms below for AI-powered analysis.</p>
   <form id="predict-form">
     <label>Symptoms (comma-separated)
       <textarea name="symptoms_text" rows="3" placeholder="e.g. cough, high_fever, fatigue"></textarea>
@@ -25,7 +26,11 @@
   </form>
   <div id="predict-output" class="output"></div>
 </div>
+
+<!-- Print-friendly result area (hidden until populated) -->
+<div id="print-area" class="print-only"></div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script src="{{ url_for('static', filename='js/predict_charts.js') }}"></script>
 {% endblock %}
