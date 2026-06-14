@@ -62,11 +62,16 @@ function renderResult(json) {
     .map(k => `<li><strong>${escapeHtml(k.disease)}</strong>: ${escapeHtml(k.content)}…</li>`)
     .join('');
 
+  const summaryHtml = json.llm_summary
+    ? `<div class="alert alert-info mt-3"><strong>AI Advisory:</strong> ${escapeHtml(json.llm_summary)}</div>`
+    : '';
+
   out.innerHTML = `
     <div class="result">
       <div class="risk-badge ${badgeClass}">
         ${escapeHtml(r.risk_level || 'UNKNOWN')} · Severity ${r.severity_score ?? '–'}/100
       </div>
+      ${summaryHtml}
       <h3>Top predictions</h3>
       <ol>${preds || '<li>No predictions returned.</li>'}</ol>
       <h3>Advice</h3>

@@ -14,6 +14,8 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     ports:
       - "${PORT:-5000}:5000"
     environment:
@@ -23,6 +25,7 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/medispark
       - REDIS_URL=redis://redis:6379/0
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - POSTGRES_URI=postgresql://medispark:medispark@postgres:5432/medispark
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - CHROMA_HOST=chromadb
@@ -115,6 +118,24 @@ services:
       - mongodb
       - kafka
 
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: medispark-postgres
+    environment:
+      POSTGRES_USER: medispark
+      POSTGRES_PASSWORD: medispark
+      POSTGRES_DB: medispark
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medispark"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── ChromaDB (Week 2/4: vector store for RAG) ────────────────────────────────
   chromadb:
     image: chromadb/chroma:0.4.22
@@ -135,3 +156,4 @@ services:
 volumes:
   mongo-data:
   chroma-data:
+  postgres-data:

@@ -11,7 +11,7 @@ try:
 except ImportError:  # pragma: no cover
     from ..config.settings import Config
 
-from .extensions import init_redis, login_manager, mongo, server_session
+from .extensions import db, init_redis, jwt, login_manager, mongo, server_session
 
 
 def create_app(config_class: type[Config] = Config) -> Flask:
@@ -29,6 +29,27 @@ def create_app(config_class: type[Config] = Config) -> Flask:
 
     # Mongo
     mongo.init_app(app, uri=config_class.MONGO_URI)
+
+    # PostgreSQL
+    app.config["SQLALCHEMY_DATABASE_URI"] = config_class.POSTGRES_URI
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    db.init_app(app)
+    try:
+        with app.app_context():
+            from .models.sql_models import AuditLog, DrugEntry  # noqa: F401 (registers models)
+            db.create_all()
+            logging.getLogger(__name__).info("PostgreSQL tables created/verified.")
+    except Exception as _pg_err:
+        logging.getLogger(__name__).warning(
+            "PostgreSQL unavailable — relational features disabled: %s", _pg_err
+        )
+
+    # JWT
+    from datetime import timedelta
+    app.config["JWT_SECRET_KEY"] = config_class.JWT_SECRET_KEY
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"]  = timedelta(seconds=config_class.JWT_ACCESS_TOKEN_EXPIRES)
+    app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(seconds=config_class.JWT_REFRESH_TOKEN_EXPIRES)
+    jwt.init_app(app)
 
     # Login
     login_manager.init_app(app)

@@ -3,6 +3,9 @@ Day 8-9: RAG Engine — LangChain + ChromaDB
 Sources : 1) MedQuAD CSV       (16,413 Q&A pairs)
           2) WHO Fact Sheets JSON (scraped by scrappers/who_scraper.py)
           3) PubMedQA JSON       (downloaded by scrappers/pubmedqa_downloader.py)
+          4) HuggingFace Medical Flashcards (medalpaca/medical_meadow_medical_flashcards)
+             — Columbia Medical Corpus substitute
+             — downloaded by scrappers/medqa_hf_downloader.py
 Run     : python -m app.services.rag_engine           (load existing)
           python -m app.services.rag_engine --rebuild  (force full rebuild)
 """
@@ -10,19 +13,20 @@ Run     : python -m app.services.rag_engine           (load existing)
 import os
 from dotenv import load_dotenv
 import pandas as pd
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 # ── PATHS ────────────────────────────────────────────────────────────────────
 BASE_DIR      = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-MEDQUAD_PATH  = os.getenv("MEDQUAD_PATH",  os.path.join(BASE_DIR, "data", "medical_knowledge", "medquad.csv"))
-WHO_PATH      = os.path.join(BASE_DIR, "data", "medical_knowledge", "who_factsheets.json")
-PUBMEDQA_PATH = os.path.join(BASE_DIR, "data", "medical_knowledge", "pubmedqa.json")
-CHROMA_DIR    = os.path.join(BASE_DIR, "data", "chromadb")
+MEDQUAD_PATH   = os.getenv("MEDQUAD_PATH",  os.path.join(BASE_DIR, "data", "medical_knowledge", "medquad.csv"))
+WHO_PATH       = os.path.join(BASE_DIR, "data", "medical_knowledge", "who_factsheets.json")
+PUBMEDQA_PATH  = os.path.join(BASE_DIR, "data", "medical_knowledge", "pubmedqa.json")
+MEDQA_HF_PATH  = os.path.join(BASE_DIR, "data", "medical_knowledge", "medqa_hf.json")
+CHROMA_DIR     = os.path.join(BASE_DIR, "data", "chromadb")
 os.makedirs(CHROMA_DIR, exist_ok=True)
 
 # ── EMBEDDING MODEL (free, runs locally) ───────────────────────────────────────
@@ -105,6 +109,10 @@ def load_pubmedqa() -> list[Document]:
     with open(path, encoding="utf-8") as f:
         records = json.load(f)
 
+    # Cap at 5 000 — 62 k records → 450 k chunks blows up ChromaDB on local machines
+    max_records = int(os.getenv("PUBMEDQA_MAX", "5000"))
+    records = records[:max_records]
+
     documents = []
     for rec in records:
         content = rec.get("content", "").strip()
@@ -119,7 +127,7 @@ def load_pubmedqa() -> list[Document]:
             }
         ))
 
-    print(f"[RAG] PubMedQA documents loaded: {len(documents):,}")
+    print(f"[RAG] PubMedQA documents loaded: {len(documents):,} (capped at {max_records})")
     return documents
 
 
@@ -161,7 +169,48 @@ def load_who_factsheets() -> list[Document]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. BUILD / LOAD VECTOR STORE
+# 4. LOAD HuggingFace MEDICAL FLASHCARDS (Columbia Medical Corpus substitute)
+# ══════════════════════════════════════════════════════════════════════════════
+def load_medqa_hf() -> list[Document]:
+    """Load medqa_hf.json produced by scrappers/medqa_hf_downloader.py.
+    Returns an empty list (with a warning) if the file does not exist yet.
+    Source: medalpaca/medical_meadow_medical_flashcards (~33k clinical Q&A cards).
+    """
+    import json
+
+    path = os.getenv("MEDQA_HF_PATH", MEDQA_HF_PATH)
+
+    if not os.path.exists(path):
+        print(f"[RAG] HuggingFace medical flashcards not found at {path} — skipping.")
+        print("      Run: python scrappers/medqa_hf_downloader.py  to generate this file.")
+        return []
+
+    with open(path, encoding="utf-8") as f:
+        records = json.load(f)
+
+    # Cap at 5 000 to keep total ChromaDB chunk count manageable
+    max_records = int(os.getenv("MEDQA_HF_MAX", "5000"))
+    records = records[:max_records]
+
+    documents = []
+    for rec in records:
+        content = rec.get("content", "").strip()
+        if not content:
+            continue
+        documents.append(Document(
+            page_content=content,
+            metadata={
+                "disease": rec.get("disease", "General Medical"),
+                "source":  "HF-MedFlashcards",
+            }
+        ))
+
+    print(f"[RAG] HuggingFace medical flashcards loaded: {len(documents):,} (capped at {max_records})")
+    return documents
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. BUILD / LOAD VECTOR STORE
 # ══════════════════════════════════════════════════════════════════════════════
 def build_vectorstore(force_rebuild: bool = False) -> Chroma:
     """
@@ -187,6 +236,7 @@ def build_vectorstore(force_rebuild: bool = False) -> Chroma:
     documents  = load_medquad()
     documents += load_who_factsheets()
     documents += load_pubmedqa()
+    documents += load_medqa_hf()
     print(f"[RAG] Total documents across all sources: {len(documents):,}")
 
     # Split long answers into chunks
@@ -209,7 +259,7 @@ def build_vectorstore(force_rebuild: bool = False) -> Chroma:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. RETRIEVE — called by ml_predictor and Flask routes
+# 6. RETRIEVE — called by ml_predictor and Flask routes
 # ══════════════════════════════════════════════════════════════════════════════
 def retrieve(query: str, k: int = 3) -> list[dict]:
     """
@@ -240,7 +290,7 @@ def retrieve(query: str, k: int = 3) -> list[dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5. MAIN — run to build or rebuild the vector store
+# 7. MAIN — run to build or rebuild the vector store
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     import argparse
@@ -269,4 +319,4 @@ if __name__ == "__main__":
         print(f"  Content : {r['content'][:200]}...")
         print()
 
-    print("\n✅  RAG engine ready! Sources: MedQuAD + WHO Fact Sheets + PubMedQA")
+    print("\n✅  RAG engine ready! Sources: MedQuAD + WHO Fact Sheets + PubMedQA + HF Medical Flashcards")

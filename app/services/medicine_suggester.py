@@ -1,9 +1,22 @@
 """
-Day 11: Medicine Suggester
-Suggests medicines based on disease and risk level.
-"""
+Medicine Suggester — DrugBank replacement via OpenFDA + static fallback.
 
-# Basic medicine database — OTC and prescription
+Resolution order:
+  1. PostgreSQL drug_database table (populated by scrappers/openfda_drug_downloader.py)
+  2. data/drug_database/drug_entries.json  (offline cache from the same downloader)
+  3. Hardcoded MEDICINE_DB (always-available baseline)
+"""
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+
+log = logging.getLogger(__name__)
+
+_DATA_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "drug_database" / "drug_entries.json"
+
+# ── Static baseline (always available, no external dependencies) ──────────────
 MEDICINE_DB = {
     "Fungal infection":     {"otc": ["Clotrimazole cream", "Fluconazole 150mg"],       "prescription": ["Itraconazole", "Terbinafine"]},
     "Allergy":              {"otc": ["Cetirizine 10mg", "Loratadine"],                  "prescription": ["Montelukast", "Fexofenadine"]},
@@ -54,20 +67,78 @@ DEFAULT_MEDICINES = {
 }
 
 
+def _query_postgres(disease: str) -> dict | None:
+    """
+    Try to fetch drug entries from the PostgreSQL drug_database table.
+    Returns {"otc": [...], "prescription": [...]} or None if unavailable.
+    """
+    try:
+        from app.models.sql_models import DrugEntry
+        rows = DrugEntry.query.filter_by(disease=disease).all()
+        if not rows:
+            return None
+        otc  = [r.drug_name for r in rows if r.drug_type == "otc"]
+        rx   = [r.drug_name for r in rows if r.drug_type == "prescription"]
+        if otc or rx:
+            return {"otc": otc, "prescription": rx}
+    except Exception as exc:
+        log.debug("[MedicineSuggester] PostgreSQL query skipped: %s", exc)
+    return None
+
+
+def _query_json_cache(disease: str) -> dict | None:
+    """
+    Fallback: read drug_entries.json built by openfda_drug_downloader.py.
+    Returns {"otc": [...], "prescription": [...]} or None.
+    """
+    if not _DATA_FILE.exists():
+        return None
+    try:
+        with open(_DATA_FILE, encoding="utf-8") as f:
+            entries: list[dict] = json.load(f)
+        otc = [e["drug_name"] for e in entries if e.get("disease") == disease and e.get("drug_type") == "otc"]
+        rx  = [e["drug_name"] for e in entries if e.get("disease") == disease and e.get("drug_type") == "prescription"]
+        if otc or rx:
+            return {"otc": otc, "prescription": rx}
+    except Exception as exc:
+        log.debug("[MedicineSuggester] JSON cache read failed: %s", exc)
+    return None
+
+
 def suggest_medicines(disease: str, medicine_type: str = "otc") -> dict:
     """
     Suggest medicines for a given disease and risk level.
+
+    Resolution order: PostgreSQL → JSON cache → static MEDICINE_DB → defaults.
+
     Args:
         disease      : predicted disease name
-        medicine_type: 'otc' or 'prescription'
+        medicine_type: 'otc' | 'prescription'
     Returns:
-        dict with otc and prescription lists
+        dict with otc, prescription, recommended, source keys
     """
-    db_entry = MEDICINE_DB.get(disease, DEFAULT_MEDICINES)
+    source = "static"
+
+    # 1. PostgreSQL
+    entry = _query_postgres(disease)
+    if entry:
+        source = "postgresql"
+    else:
+        # 2. JSON cache (OpenFDA offline data)
+        entry = _query_json_cache(disease)
+        if entry:
+            source = "openfda_cache"
+        else:
+            # 3. Static baseline
+            entry = MEDICINE_DB.get(disease, DEFAULT_MEDICINES)
+
+    otc = entry.get("otc", DEFAULT_MEDICINES["otc"])
+    rx  = entry.get("prescription", DEFAULT_MEDICINES["prescription"])
 
     return {
         "disease":      disease,
-        "otc":          db_entry.get("otc", DEFAULT_MEDICINES["otc"]),
-        "prescription": db_entry.get("prescription", DEFAULT_MEDICINES["prescription"]),
-        "recommended":  db_entry.get(medicine_type, DEFAULT_MEDICINES[medicine_type])
+        "otc":          otc,
+        "prescription": rx,
+        "recommended":  otc if medicine_type == "otc" else rx,
+        "source":       source,
     }

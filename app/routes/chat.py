@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
+from app.utils.auth_decorators import jwt_or_login_required
 
 from app.services.chatbot import chat as chatbot_chat, get_history, reset_memory
 
@@ -22,7 +23,7 @@ chat_bp = Blueprint("chat", __name__)
 # Body: { "message": "I have fever and cough" }
 # ──────────────────────────────────────────────────────────────────────────────
 @chat_bp.route("/chat", methods=["POST"])
-@login_required
+@jwt_or_login_required
 def chat():
     """
     Multi-turn medical chatbot endpoint.
@@ -59,7 +60,7 @@ def chat():
 # GET /api/chat/history
 # ──────────────────────────────────────────────────────────────────────────────
 @chat_bp.route("/chat/history", methods=["GET"])
-@login_required
+@jwt_or_login_required
 def chat_history():
     """Return the current user's conversation history."""
     history = get_history(str(current_user.id))
@@ -70,7 +71,7 @@ def chat_history():
 # DELETE /api/chat/reset
 # ──────────────────────────────────────────────────────────────────────────────
 @chat_bp.route("/chat/reset", methods=["DELETE"])
-@login_required
+@jwt_or_login_required
 def chat_reset():
     """Clear the current user's conversation memory."""
     reset_memory(str(current_user.id))

@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import redis
+from flask_jwt_extended import JWTManager
 from flask_login import LoginManager
 from flask_pymongo import PyMongo
 from flask_session import Session
+from flask_sqlalchemy import SQLAlchemy
 
 mongo = PyMongo()
+db = SQLAlchemy()
+jwt = JWTManager()
 login_manager = LoginManager()
 login_manager.login_view = "auth.login"
 login_manager.login_message_category = "info"

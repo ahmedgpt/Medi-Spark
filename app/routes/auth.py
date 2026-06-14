@@ -1,11 +1,18 @@
-"""Authentication blueprint — register, login, logout.
-Week 4: Flask-Limiter applied to login (5/min) and register (10/min) to
-prevent brute-force and spam account creation.
+"""Authentication blueprint — register, login, logout, JWT token endpoints.
+
+Endpoints
+---------
+POST /auth/register          — create account (web form)
+POST /auth/login             — login (web form, sets session cookie)
+GET  /auth/logout            — logout (clears session)
+POST /auth/token             — issue JWT access + refresh tokens (API clients)
+POST /auth/token/refresh     — exchange refresh token for new access token
 """
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required, login_user, logout_user
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 
 from app.models.user import User
 
@@ -41,6 +48,11 @@ def register():
         age  = int(age_raw) if age_raw.isdigit() else None
         user = User.create(email=email, password=password, name=name, age=age)
         login_user(user)
+        try:
+            from app.models.sql_models import AuditLog
+            AuditLog.log("register", user_id=str(user.id), ip=request.remote_addr)
+        except Exception:
+            pass
         flash("Welcome to MediSpark!", "success")
         return redirect(url_for("dashboard.index"))
 
@@ -67,6 +79,11 @@ def login():
             return render_template("login.html")
 
         login_user(user, remember=True)
+        try:
+            from app.models.sql_models import AuditLog
+            AuditLog.log("login", user_id=str(user.id), ip=request.remote_addr)
+        except Exception:
+            pass
         return redirect(url_for("dashboard.index"))
 
     return render_template("login.html")
@@ -78,3 +95,49 @@ def logout():
     logout_user()
     flash("Signed out.", "info")
     return redirect(url_for("auth.login"))
+
+
+# ── JWT Token endpoints (for REST / mobile API clients) ───────────────────────
+
+@auth_bp.route("/token", methods=["POST"])
+def issue_token():
+    """
+    Issue JWT access + refresh tokens.
+    Accepts JSON: { "email": "...", "password": "..." }
+    Returns:      { "access_token": "...", "refresh_token": "..." }
+    """
+    data     = request.get_json(silent=True) or {}
+    email    = (data.get("email") or "").strip()
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return jsonify({"error": "email and password required"}), 400
+
+    user = User.get_by_email(email)
+    if not user or not user.check_password(password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    access_token  = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    try:
+        from app.models.sql_models import AuditLog
+        AuditLog.log("jwt_login", user_id=str(user.id), ip=request.remote_addr)
+    except Exception:
+        pass
+
+    return jsonify({
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "user_id":       str(user.id),
+        "email":         user.email,
+    }), 200
+
+
+@auth_bp.route("/token/refresh", methods=["POST"])
+@jwt_required(refresh=True)
+def refresh_token():
+    """Exchange a valid refresh token for a new access token."""
+    identity     = get_jwt_identity()
+    access_token = create_access_token(identity=identity)
+    return jsonify({"access_token": access_token}), 200

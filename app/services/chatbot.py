@@ -111,6 +111,22 @@ def _preload_retriever():
         from app.services.rag_engine import build_vectorstore
         log.info("[Chatbot] Background: loading RAG retriever (this may take 15-30s)…")
         vs = build_vectorstore()
+        retriever = vs.as_retriever(search_kwargs={"k": 2})
+
+        # Health-check: run a test query and verify results look like real English text.
+        # A corrupted ChromaDB returns chunks that are mostly non-ASCII gibberish.
+        test_docs = retriever.get_relevant_documents("fever symptoms treatment")
+        if test_docs:
+            sample = test_docs[0].page_content
+            printable_ratio = sum(1 for c in sample if c.isascii() and c.isprintable()) / max(len(sample), 1)
+            if printable_ratio < 0.7:
+                log.error(
+                    "[Chatbot] ❌ ChromaDB health-check FAILED — store appears corrupted "
+                    "(%.0f%% printable ASCII). Delete data/chromadb/ and rebuild. "
+                    "Falling back to rule-based mode.", printable_ratio * 100
+                )
+                return   # do NOT set _cached_retriever — forces rule-based fallback
+
         _cached_retriever = vs.as_retriever(search_kwargs={"k": 4})
         log.info("[Chatbot] ✅ RAG retriever loaded and cached — chat will now use medical knowledge base.")
     except Exception as exc:  # noqa: BLE001
@@ -192,17 +208,47 @@ def _get_retriever(k: int = 4):
 # Ollama config (read from env / settings.py)
 _OLLAMA_URL     = os.getenv("OLLAMA_URL",     "http://localhost:11434")
 _OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL",   "gemma3:1b")
-_OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "90"))  # first call loads model ~50s
+_OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # 120s for remote tunnel; local default was 90s
 
-_SYSTEM_PROMPT = (
+_SYSTEM_PROMPT_EN = (
     "You are MediSpark, a friendly medical health assistant for patients in Pakistan. "
     "IMPORTANT RULES:\n"
-    "1. Reply ONLY in plain English. Never output symbols, numbers, code blocks, or non-English scripts.\n"
-    "2. If the user greets you (e.g. 'hello', 'hi', 'kaise ho', 'how are you'), respond with a short friendly greeting and ask how you can help with their health today.\n"
+    "1. Reply in plain English. Never output code blocks.\n"
+    "2. If the user greets you (e.g. 'hello', 'hi', 'how are you'), respond with a short friendly greeting and ask how you can help with their health today.\n"
     "3. For health/medical questions: give (a) likely causes, (b) safe home remedies, (c) when to see a doctor.\n"
     "4. Keep every reply under 150 words.\n"
     "5. End medical replies with: This is general health information. Please consult a qualified doctor."
 )
+
+_SYSTEM_PROMPT_UR = (
+    "You are MediSpark, a medical health assistant for patients in Pakistan. "
+    "The user is writing in Roman Urdu — Urdu language spelled with English/Latin letters.\n\n"
+    "YOUR ONLY JOB: reply in Roman Urdu. Here is an example of correct Roman Urdu:\n"
+    "  'Aap ka masla samajh aa gaya. Bukhar ke liye paracetamol lein aur zyada paani piyein. "
+    "Agar teen din mein theek na hon toh doctor se zaroor milein.'\n\n"
+    "STRICT RULES — follow all of them:\n"
+    "1. ONLY write in Roman Urdu. NEVER switch to English sentences.\n"
+    "2. NEVER use Arabic/Urdu script (no ا ب پ letters).\n"
+    "3. NEVER output code blocks or bullet symbols like *.\n"
+    "4. For greetings: reply with a short warm Roman Urdu greeting.\n"
+    "5. For health questions: (a) wajuhaat batayein, (b) ghar pe ilaj, (c) doctor kab jayein.\n"
+    "6. Keep reply under 120 words.\n"
+    "7. End every medical reply with: 'Yeh sirf aam maloomat hai. Doctor se zaroor milein.'"
+)
+
+_SYSTEM_PROMPT_UR_NATIVE = (
+    "You are MediSpark, a medical health assistant for patients in Pakistan. "
+    "The user is writing in Urdu script. YOU MUST reply ONLY in Urdu script (Arabic letters).\n\n"
+    "STRICT RULES:\n"
+    "1. صرف اردو رسم الخط میں جواب دیں۔ انگریزی بالکل نہ لکھیں۔\n"
+    "2. کوڈ بلاکس یا * علامات استعمال نہ کریں۔\n"
+    "3. صحت کے سوالات کے لیے: (الف) ممکنہ وجوہات، (ب) گھریلو علاج، (ج) ڈاکٹر کب جائیں۔\n"
+    "4. جواب 120 الفاظ سے کم رکھیں۔\n"
+    "5. ہر طبی جواب کے آخر میں لکھیں: 'یہ عام معلومات ہے۔ کسی مستند ڈاکٹر سے ضرور ملیں۔'"
+)
+
+# Legacy alias used by rule-based fallback
+_SYSTEM_PROMPT = _SYSTEM_PROMPT_EN
 
 
 # ── Greeting / casual interceptor ────────────────────────────────────────────
@@ -215,40 +261,66 @@ _GREETINGS_EN = {
     "assalam", "assalamualaikum", "salam", "aoa",
 }
 _GREETINGS_UR = {
+    "kaise", "kaisa", "kaisay",
     "kaise ho", "kaise hain", "kaisy ho", "kesy ho", "ap kaise hain",
     "theek ho", "theek hain", "kem cho", "kiddan",
     "adaab", "sat sri akal",
 }
-_GREETING_RESPONSE = (
+_GREETING_RESPONSE_EN = (
     "Hello! I'm MediSpark, your medical health assistant. "
     "I'm doing great, thank you for asking! 😊 "
     "How can I help you with your health today? "
     "Feel free to describe any symptoms or ask a medical question."
 )
+_GREETING_RESPONSE_UR = (
+    "Salam! Main MediSpark hoon, aap ka sehat ka madad gar. "
+    "Main bilkul theek hoon, shukriya poochne ka! 😊 "
+    "Aaj main aap ki kya madad kar sakta hoon? "
+    "Apne symptoms batayein ya koi bhi sehat ka sawaal poochein."
+)
+_GREETING_RESPONSE_UR_NATIVE = (
+    "السلام علیکم! میں MediSpark ہوں، آپ کا صحت کا معاون۔ "
+    "میں بالکل ٹھیک ہوں، شکریہ پوچھنے کا! 😊 "
+    "آج میں آپ کی کیا مدد کر سکتا ہوں؟"
+)
 
 
-def _check_greeting(message: str) -> str:
-    """Return a greeting reply if the message is a casual greeting, else empty string."""
+def _check_greeting(message: str, detected_lang: str = "english") -> str:
+    """Return a language-matched greeting reply if the message is a casual greeting, else empty string."""
     clean = message.strip().lower().rstrip("!?., ")
-    if clean in _GREETINGS_EN or clean in _GREETINGS_UR:
-        return _GREETING_RESPONSE
-    # Also catch short greetings embedded in slightly longer phrases
-    for g in _GREETINGS_UR:
-        if clean == g or clean.startswith(g + " ") or clean.endswith(" " + g):
-            return _GREETING_RESPONSE
-    return ""
+    is_greeting = (
+        clean in _GREETINGS_EN
+        or clean in _GREETINGS_UR
+        or any(clean == g or clean.startswith(g + " ") or clean.endswith(" " + g) for g in _GREETINGS_UR)
+    )
+    if not is_greeting:
+        return ""
+    if detected_lang == "urdu":
+        return _GREETING_RESPONSE_UR_NATIVE
+    if detected_lang == "roman_urdu":
+        return _GREETING_RESPONSE_UR
+    return _GREETING_RESPONSE_EN
+
+
+def _system_prompt_for(detected_lang: str) -> str:
+    if detected_lang == "urdu":
+        return _SYSTEM_PROMPT_UR_NATIVE
+    if detected_lang == "roman_urdu":
+        return _SYSTEM_PROMPT_UR
+    return _SYSTEM_PROMPT_EN
 
 
 def _build_ollama_messages(
     message: str,
     history: list[dict],
     context_docs: list[str],
+    detected_lang: str = "english",
 ) -> list[dict]:
     """
     Build the Ollama chat message list:
     [system] + optional [RAG context as system] + [history] + [user message]
     """
-    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": _system_prompt_for(detected_lang)}]
 
     # Inject RAG context as a second system message so the LLM can reference it
     if context_docs:
@@ -275,6 +347,7 @@ def _call_ollama(
     message: str,
     history: list[dict],
     context_docs: list[str],
+    detected_lang: str = "english",
 ) -> str:
     """
     Call the local Ollama server via its /api/chat REST endpoint.
@@ -283,7 +356,7 @@ def _call_ollama(
     """
     import requests as req
 
-    messages = _build_ollama_messages(message, history, context_docs)
+    messages = _build_ollama_messages(message, history, context_docs, detected_lang)
 
     try:
         resp = req.post(
@@ -345,7 +418,87 @@ def _get_cloud_llm():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 4. RULE-BASED FALLBACK (no LLM key needed)
+# 4. LANGUAGE ENFORCEMENT — guarantees reply matches user's input language
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _is_english(text: str) -> bool:
+    """Return True if text appears to be primarily English."""
+    try:
+        from langdetect import detect
+        return detect(text) == "en"
+    except Exception:
+        # Fallback: if >60% ASCII letters it's likely English/Roman
+        letters = [c for c in text if c.isalpha()]
+        if not letters:
+            return True
+        ascii_ratio = sum(1 for c in letters if ord(c) < 128) / len(letters)
+        return ascii_ratio > 0.85
+
+
+def _translate_to_roman_urdu(text: str) -> str:
+    """Ask the LLM to rewrite an English reply in Roman Urdu."""
+    import requests as req
+    prompt = (
+        "Translate the following medical advice into Roman Urdu "
+        "(Urdu language written with English/Latin letters, the way Pakistanis text each other). "
+        "Example style: 'Aap ko bukhar hai. Paracetamol lein aur zyada paani piyein. "
+        "Teen din mein theek na hon toh doctor se milein.' "
+        "Output ONLY the Roman Urdu translation — no English, no Urdu script:\n\n" + text[:600]
+    )
+    try:
+        resp = req.post(
+            f"{_OLLAMA_URL}/api/chat",
+            json={
+                "model": _OLLAMA_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.1, "num_predict": 220, "top_p": 0.9},
+            },
+            timeout=45,
+        )
+        resp.raise_for_status()
+        result = resp.json().get("message", {}).get("content", "").strip()
+        return result if result else text
+    except Exception as exc:
+        log.warning("[Chatbot] Roman Urdu translation call failed: %s", exc)
+        return text
+
+
+def _translate_to_urdu_native(text: str) -> str:
+    """Translate English reply to native Urdu script using deep-translator."""
+    try:
+        from deep_translator import GoogleTranslator
+        # Translate in one chunk (cap at 4500 chars — Google's limit)
+        return GoogleTranslator(source="en", target="ur").translate(text[:1000])
+    except Exception as exc:
+        log.warning("[Chatbot] Native Urdu translation failed: %s", exc)
+        return text
+
+
+def _enforce_language(reply: str, detected_lang: str) -> str:
+    """
+    Guarantee the reply is in the same language as the user's input.
+    Only triggers a translation when the LLM returned English despite instructions.
+    """
+    if detected_lang == "english" or not reply:
+        return reply
+
+    if not _is_english(reply):
+        return reply   # LLM already replied in the right language — nothing to do
+
+    if detected_lang == "roman_urdu":
+        log.info("[Chatbot] LLM replied in English for Roman Urdu input — translating.")
+        return _translate_to_roman_urdu(reply)
+
+    if detected_lang == "urdu":
+        log.info("[Chatbot] LLM replied in English for Urdu input — translating.")
+        return _translate_to_urdu_native(reply)
+
+    return reply
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. RULE-BASED FALLBACK (no LLM key needed)
 # ══════════════════════════════════════════════════════════════════════════════
 
 _SYMPTOM_KEYWORDS = {
@@ -551,13 +704,37 @@ def chat(user_id: str, message: str) -> dict:
     # 2. Load conversation history
     history = _load_history(user_id)
 
-    # 3. Retrieve RAG context (non-blocking)
+    # 3a. Greeting short-circuit — intercept before hitting the LLM
+    greeting_reply = _check_greeting(message, detected_lang)
+    if not greeting_reply:
+        greeting_reply = _check_greeting(translated_msg, detected_lang)
+    if greeting_reply:
+        history.append({"role": "human", "content": message})
+        history.append({"role": "ai",    "content": greeting_reply})
+        _save_history(user_id, history)
+        _publish_to_kafka(user_id, message, greeting_reply)
+        return {
+            "reply":         greeting_reply,
+            "detected_lang": detected_lang,
+            "translated":    translated_msg if detected_lang != "english" else None,
+            "sources":       [],
+            "llm_source":    "greeting-interceptor",
+        }
+
+    # 3b. Retrieve RAG context (non-blocking)
     context_docs: list[str] = []
     retriever = _get_retriever(k=4)
     if retriever:
         try:
             docs = retriever.get_relevant_documents(translated_msg)
-            context_docs = [d.page_content[:300] for d in docs]
+            # Sanitize: keep only printable ASCII to prevent garbage from
+            # corrupted ChromaDB chunks confusing the small LLM
+            raw_docs = [d.page_content for d in docs]
+            context_docs = [
+                "".join(c for c in doc if c.isprintable())[:300]
+                for doc in raw_docs
+                if doc.strip()
+            ]
         except Exception as exc:  # noqa: BLE001
             log.warning("[Chatbot] Retriever error: %s", exc)
 
@@ -566,11 +743,10 @@ def chat(user_id: str, message: str) -> dict:
     llm_source = "rule-based"
 
     # 4a. Try Ollama (local LLM) first
-    # NOTE: Send the ORIGINAL message, not the translated one.
-    # gemma3:1b understands Roman Urdu / Urdu natively, and the
-    # dictionary-based translation often corrupts the user's intent.
+    # Send the ORIGINAL message so the model can match the user's language.
+    # The system prompt instructs it to reply in the same language.
     if not reply:
-        ollama_reply = _call_ollama(message, history, context_docs)
+        ollama_reply = _call_ollama(message, history, context_docs, detected_lang)
         if ollama_reply:
             reply = ollama_reply
             llm_source = f"ollama/{_OLLAMA_MODEL}"
@@ -612,6 +788,10 @@ def chat(user_id: str, message: str) -> dict:
     if not reply:
         reply = _rule_based_reply(translated_msg, context_docs, history)
         llm_source = "rule-based"
+
+    # 4d. Language enforcement — translate reply if LLM ignored language instruction
+    if llm_source != "rule-based":
+        reply = _enforce_language(reply, detected_lang)
 
     # 5. Update history
     history.append({"role": "human", "content": message})

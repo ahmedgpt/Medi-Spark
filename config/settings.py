@@ -20,6 +20,11 @@ class Config:
     # Mongo
     MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/medispark")
 
+    # PostgreSQL (structured relational data: audit logs, drug database)
+    POSTGRES_URI = os.getenv("POSTGRES_URI", "postgresql://medispark:medispark@localhost:5432/medispark")
+    SQLALCHEMY_DATABASE_URI = POSTGRES_URI
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
     # Redis / sessions
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     SESSION_TYPE = "redis"
@@ -72,3 +77,8 @@ class Config:
 
     # Week 3 — Minimum new samples needed before triggering retraining
     MIN_RETRAIN_SAMPLES = int(os.getenv("MIN_RETRAIN_SAMPLES", "50"))
+
+    # JWT
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
+    JWT_ACCESS_TOKEN_EXPIRES  = int(os.getenv("JWT_ACCESS_EXPIRES",  "3600"))   # 1 hour
+    JWT_REFRESH_TOKEN_EXPIRES = int(os.getenv("JWT_REFRESH_EXPIRES", "604800")) # 7 days

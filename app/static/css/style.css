@@ -154,6 +154,9 @@ textarea { resize: vertical; }
 .chart-card h3 { margin: 0 0 14px; font-size: 0.95rem; color: var(--primary-dark); }
 .chart-card.wide { grid-column: 1 / -1; }
 
+/* Chart responsive wrapper — fixes infinite-grow with maintainAspectRatio:false */
+.chart-wrap { position: relative; }
+
 /* Gauge */
 .gauge-wrapper { position: relative; display: flex; justify-content: center; align-items: center; }
 .gauge-center {

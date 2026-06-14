@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify
 from flask_login import current_user, login_required
+from app.utils.auth_decorators import jwt_or_login_required
 
 from app.models.symptom_log import SymptomLog
 
@@ -10,7 +11,7 @@ history_bp = Blueprint("history", __name__)
 
 
 @history_bp.route("/history", methods=["GET"])
-@login_required
+@jwt_or_login_required
 def history():
     items = SymptomLog.list_for_user(current_user.id)
     # ObjectId / datetime → JSON-safe strings
