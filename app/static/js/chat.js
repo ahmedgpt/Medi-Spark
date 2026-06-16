@@ -21,12 +21,56 @@ function scrollToBottom() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function formatBotReply(text) {
-  // Convert **bold** to <strong>
-  let html = escapeHtml(text)
+function applyInline(s) {
+  return s
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br>');
-  return html;
+    .replace(/⚠️/g, '<span class="chat-warn">⚠️</span>');
+}
+
+function formatBotReply(text) {
+  // Split on double newlines into blocks
+  const blocks = text.trim().split(/\n{2,}/);
+  let html = '';
+
+  for (const block of blocks) {
+    const lines = block.trim().split('\n').filter(l => l.trim());
+    if (!lines.length) continue;
+
+    const isBullet = l => /^[•\-\*]\s+/.test(l.trim());
+    const bulletCount = lines.filter(isBullet).length;
+
+    if (bulletCount === lines.length) {
+      // Pure bullet block → <ul>
+      html += '<ul>';
+      for (const line of lines) {
+        const content = applyInline(escapeHtml(line.trim().replace(/^[•\-\*]\s+/, '')));
+        html += `<li>${content}</li>`;
+      }
+      html += '</ul>';
+    } else if (bulletCount > 0) {
+      // Mixed block — process line by line
+      let inList = false;
+      for (const line of lines) {
+        const t = line.trim();
+        if (isBullet(t)) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += `<li>${applyInline(escapeHtml(t.replace(/^[•\-\*]\s+/, '')))}</li>`;
+        } else {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<p>${applyInline(escapeHtml(t))}</p>`;
+        }
+      }
+      if (inList) html += '</ul>';
+    } else {
+      // Plain text block — each line as its own <p>
+      for (const line of lines) {
+        const t = line.trim();
+        if (t) html += `<p>${applyInline(escapeHtml(t))}</p>`;
+      }
+    }
+  }
+
+  return html || `<p>${escapeHtml(text)}</p>`;
 }
 
 function autoResize(textarea) {
@@ -50,7 +94,7 @@ function addMessage(role, content, extra = {}) {
   if (role === 'user') {
     bubble.innerHTML = `<p>${escapeHtml(content)}</p>`;
   } else {
-    bubble.innerHTML = `<p>${formatBotReply(content)}</p>`;
+    bubble.innerHTML = formatBotReply(content);
   }
 
   // Show translation if input was non-English

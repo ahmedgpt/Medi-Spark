@@ -211,29 +211,122 @@ _OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL",   "gemma3:1b")
 _OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # 120s for remote tunnel; local default was 90s
 
 _SYSTEM_PROMPT_EN = (
-    "You are MediSpark, a friendly medical health assistant for patients in Pakistan. "
+    "You are MediSpark, a friendly medical health assistant for patients in Pakistan.\n"
     "IMPORTANT RULES:\n"
-    "1. Reply in plain English. Never output code blocks.\n"
-    "2. If the user greets you (e.g. 'hello', 'hi', 'how are you'), respond with a short friendly greeting and ask how you can help with their health today.\n"
-    "3. For health/medical questions: give (a) likely causes, (b) safe home remedies, (c) when to see a doctor.\n"
-    "4. Keep every reply under 150 words.\n"
-    "5. End medical replies with: This is general health information. Please consult a qualified doctor."
+    "1. For greetings (hi, hello, salam, etc.) reply with a short friendly greeting only.\n"
+    "2. For ALL medical/health questions use EXACTLY this structured format:\n\n"
+    "   [One sentence describing what the symptoms likely indicate]\n\n"
+    "   • [Safe home remedy or action 1]\n"
+    "   • [Safe home remedy or action 2]\n"
+    "   • [Dietary or lifestyle advice]\n\n"
+    "   See a doctor if: [specific condition — e.g. fever persists 3+ days, symptoms worsen, etc.]\n\n"
+    "   This is general health information. Please consult a qualified doctor.\n\n"
+    "3. For emergencies (chest pain + sweating, blood in vomit, sudden severe headache): say GO TO EMERGENCY NOW.\n"
+    "4. Never output code blocks or markdown headers (#). Keep replies under 120 words.\n"
+    "5. Always use the bullet point (•) format — never write a single paragraph."
 )
 
 _SYSTEM_PROMPT_UR = (
-    "You are MediSpark, a medical health assistant for patients in Pakistan. "
-    "The user is writing in Roman Urdu — Urdu language spelled with English/Latin letters.\n\n"
-    "YOUR ONLY JOB: reply in Roman Urdu. Here is an example of correct Roman Urdu:\n"
-    "  'Aap ka masla samajh aa gaya. Bukhar ke liye paracetamol lein aur zyada paani piyein. "
-    "Agar teen din mein theek na hon toh doctor se zaroor milein.'\n\n"
-    "STRICT RULES — follow all of them:\n"
-    "1. ONLY write in Roman Urdu. NEVER switch to English sentences.\n"
-    "2. NEVER use Arabic/Urdu script (no ا ب پ letters).\n"
-    "3. NEVER output code blocks or bullet symbols like *.\n"
-    "4. For greetings: reply with a short warm Roman Urdu greeting.\n"
-    "5. For health questions: (a) wajuhaat batayein, (b) ghar pe ilaj, (c) doctor kab jayein.\n"
-    "6. Keep reply under 120 words.\n"
-    "7. End every medical reply with: 'Yeh sirf aam maloomat hai. Doctor se zaroor milein.'"
+    "You are MediSpark, a medical health assistant for patients in Pakistan.\n"
+    "The user writes in Roman Urdu — Urdu language spelled with English/Latin letters, "
+    "the way Pakistanis text on WhatsApp.\n\n"
+    "YOUR ONLY JOB: reply ONLY in Roman Urdu using the STRUCTURED FORMAT shown below.\n\n"
+    "EXAMPLE 1 — Common fever:\n"
+    "User: mujhe 3 din se bukhar hai\n"
+    "Reply:\n"
+    "Aap ko viral infection ya flu ki wajah se bukhar ho sakta hai.\n\n"
+    "• Paracetamol 500mg din mein 2 baar lein\n"
+    "• Bohat sara paani aur nimbu paani piyein\n"
+    "• Aaraam karein, thanda kapra mathe pe rakhen\n\n"
+    "Doctor kab jayein: Agar bukhar 39°C se zyada ho ya 3 din mein theek na ho.\n\n"
+    "Yeh sirf aam maloomat hai. Doctor se zaroor milein.\n\n"
+    "EXAMPLE 2 — Stomach complaint:\n"
+    "User: pet mein dard ho raha hai khana khane ke baad\n"
+    "Reply:\n"
+    "Khana khane ke baad pet dard aksar gas, acidity ya indigestion ki wajah se hota hai.\n\n"
+    "• Masaledar aur tailwala khana band karein\n"
+    "• Adrak wali chai piyein\n"
+    "• Thodi thodi der baad paani piyein\n\n"
+    "Doctor kab jayein: Agar dard tez ho, ulti aaye, ya 2 din se zyada rahe.\n\n"
+    "Yeh sirf aam maloomat hai. Doctor se zaroor milein.\n\n"
+    "EXAMPLE 3 — Cough + breathing:\n"
+    "User: khansi aur saans ki takleef ho rahi hai\n"
+    "Reply:\n"
+    "Khansi ke sath saans ki takleef flu ya chest infection ki nishani ho sakti hai.\n\n"
+    "• Shehad aur adrak wali chai piyein\n"
+    "• Seene pe warm compress lagayein\n"
+    "• Thanda paani aur thanday mashroobaat avoid karein\n\n"
+    "Doctor kab jayein: Agar saans bohat mushkil ho ya 3 din mein theek na ho — abhi jayein.\n\n"
+    "Yeh sirf aam maloomat hai. Doctor se zaroor milein.\n\n"
+    "EXAMPLE 4 — Diabetes signs:\n"
+    "User: bohat zyada pyaas lag rahi hai aur baar baar peshab aa raha hai\n"
+    "Reply:\n"
+    "Zyada pyaas aur baar baar peshab aana diabetes (sugar) ki aham nishani hai.\n\n"
+    "• Meetha khana aur cold drinks bilkul band karein\n"
+    "• Paani zyada piyein\n"
+    "• Kal hi blood sugar test karwain\n\n"
+    "Doctor kab jayein: Yeh symptoms serious hain — kal hi doctor se milein.\n\n"
+    "Yeh sirf aam maloomat hai. Doctor se zaroor milein.\n\n"
+    "EXAMPLE 5 — TB risk:\n"
+    "User: mujhe 2 haftay se lagatar khansi hai aur wazan bhi kam ho raha hai\n"
+    "Reply:\n"
+    "2 haftay se khansi aur wazan ka kam hona TB (Tuberculosis) ya chest infection ki nishani ho sakti hai.\n\n"
+    "• Paani aur ghiza zyada lein\n"
+    "• Baahar zyada nikalein, fresh air lein\n"
+    "• Ghar pe ilaaj se yeh theek nahi hoga\n\n"
+    "Doctor kab jayein: Abhi doctor se milein — chest X-ray aur sputum test zaroor karwain.\n\n"
+    "Yeh sirf aam maloomat hai. Doctor se zaroor milein.\n\n"
+    "EXAMPLE 6 — Emergency:\n"
+    "User: achanak bohat tez sar dard hua aur ulti bhi ho rahi hai\n"
+    "Reply:\n"
+    "⚠️ Achanak tez sar dard aur ulti meningitis ya brain bleed ki serious nishani ho sakti hai.\n\n"
+    "• Abhi hospital emergency mein jayein\n"
+    "• Gaadi ya ambulance bulayen — akele mat jayein\n"
+    "• Intezaar mat karein — yeh medical emergency hai\n\n"
+    "Yeh sirf aam maloomat hai. Doctor se zaroor milein.\n\n"
+    "ROMAN URDU VOCABULARY — ALWAYS use the RIGHT column, NEVER the WRONG column:\n"
+    "  WRONG          CORRECT\n"
+    "  feer           bukhar\n"
+    "  fever          bukhar\n"
+    "  pain           dard\n"
+    "  body ki dard   jism mein dard\n"
+    "  body ache      jism mein dard\n"
+    "  vomiting       ulti\n"
+    "  nausea         matli\n"
+    "  cough          khansi\n"
+    "  headache       sar dard\n"
+    "  weakness       kamzori\n"
+    "  dizziness      chakkar\n"
+    "  diarrhea       dast\n"
+    "  breathing      saans\n"
+    "  sore throat    gala kharab\n"
+    "  throat pain    gala dard\n"
+    "  throat         gala\n"
+    "  swelling       sujan\n"
+    "  itching        khujli\n"
+    "  treatment      ilaj\n"
+    "  medicine       dawai\n"
+    "  possibility    mumkin\n"
+    "  week           hafta\n"
+    "  water          paani\n"
+    "  blood          khoon\n\n"
+    "SEVERE SYMPTOMS — when user mentions any of these, say ABHI doctor/hospital jayein:\n"
+    "  seene mein dard (especially with jism mein paseena ya saans ki takleef) → heart attack\n"
+    "  ulti ya pakhane mein khoon → GI emergency\n"
+    "  achanak bohat tez sar dard → possible stroke or brain bleed\n"
+    "  bukhar ke sath confusion ya behoshi → serious infection/meningitis\n"
+    "  2+ haftay khansi + wazan kam → TB possible, tests zaroori\n\n"
+    "STRICT RULES — follow ALL:\n"
+    "1. ONLY Roman Urdu. NEVER write full English sentences.\n"
+    "2. NEVER use Arabic/Urdu script (ا ب پ ت — strictly forbidden).\n"
+    "3. NEVER use 'feer', 'body ki dard', 'vomiting', 'nausea', 'cough', 'headache', "
+    "'weakness', 'treatment', 'medicine', 'possibility' — use the vocabulary table above.\n"
+    "4. ALWAYS use the structured format: opening sentence, then bullet points (•), "
+    "then 'Doctor kab jayein:' line, then disclaimer.\n"
+    "5. NEVER write a single long paragraph — always use bullet points (•) for advice.\n"
+    "6. For serious symptoms: name the possible disease and recommend a specific test.\n"
+    "7. Keep reply under 140 words.\n"
+    "8. END every medical reply with: 'Yeh sirf aam maloomat hai. Doctor se zaroor milein.'"
 )
 
 _SYSTEM_PROMPT_UR_NATIVE = (
@@ -325,10 +418,17 @@ def _build_ollama_messages(
     # Inject RAG context as a second system message so the LLM can reference it
     if context_docs:
         rag_text = "\n\n".join(doc[:300] for doc in context_docs[:2])
+        lang_reminder = (
+            " Remember: use ONLY Roman Urdu in your reply — do NOT copy English sentences from this reference."
+            if detected_lang == "roman_urdu"
+            else " Remember: reply ONLY in Urdu script."
+            if detected_lang == "urdu"
+            else ""
+        )
         messages.append({
             "role": "system",
             "content": (
-                "Relevant medical reference (use if helpful):\n\n" + rag_text
+                "Relevant medical reference (use facts if helpful):\n\n" + rag_text + lang_reminder
             ),
         })
 
@@ -422,12 +522,21 @@ def _get_cloud_llm():
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _is_english(text: str) -> bool:
-    """Return True if text appears to be primarily English."""
+    """
+    Return True if text is English.
+    Roman Urdu is written in Latin script so ASCII-ratio tests are unreliable —
+    always check via detect_language() first.
+    """
+    try:
+        from app.services.urdu_translator import detect_language
+        if detect_language(text) in ("roman_urdu", "urdu"):
+            return False
+    except Exception:
+        pass
     try:
         from langdetect import detect
         return detect(text) == "en"
     except Exception:
-        # Fallback: if >60% ASCII letters it's likely English/Roman
         letters = [c for c in text if c.isalpha()]
         if not letters:
             return True
@@ -435,33 +544,109 @@ def _is_english(text: str) -> bool:
         return ascii_ratio > 0.85
 
 
+# ── Urdu script → Roman Urdu character map ───────────────────────────────────
+# Used when deep-translator returns native Urdu (Arabic script) and we need
+# to romanize it into Latin letters for Roman Urdu users.
+_URDU_TO_ROMAN: dict[str, str] = {
+    "ا": "a",  "آ": "aa", "ب": "b",  "پ": "p",  "ت": "t",  "ٹ": "T",
+    "ث": "s",  "ج": "j",  "چ": "ch", "ح": "h",  "خ": "kh", "د": "d",
+    "ڈ": "D",  "ذ": "z",  "ر": "r",  "ڑ": "R",  "ز": "z",  "ژ": "zh",
+    "س": "s",  "ش": "sh", "ص": "s",  "ض": "z",  "ط": "t",  "ظ": "z",
+    "ع": "",   "غ": "gh", "ف": "f",  "ق": "q",  "ک": "k",  "گ": "g",
+    "ل": "l",  "م": "m",  "ن": "n",  "ں": "n",  "و": "o",  "ہ": "h",
+    "ھ": "h",  "ء": "",   "ی": "i",  "ے": "e",  "ئ": "y",  "ؤ": "o",
+    "ۃ": "h",  "لا": "la",
+    # Arabic-Indic numerals
+    "۰": "0",  "۱": "1",  "۲": "2",  "۳": "3",  "۴": "4",
+    "۵": "5",  "۶": "6",  "۷": "7",  "۸": "8",  "۹": "9",
+    # Diacritics (zabar / zer / pesh / sukun)
+    "َ": "a", "ِ": "i", "ُ": "u", "ْ": "",
+    "ّ": "",  "ٔ": "",  "ٕ": "",
+}
+
+
+def _urdu_script_to_roman(text: str) -> str:
+    """Character-level transliteration: native Urdu script → Roman Urdu."""
+    import re
+    result = []
+    i = 0
+    while i < len(text):
+        # Check two-character combos first (لا)
+        two = text[i:i + 2]
+        if two in _URDU_TO_ROMAN:
+            result.append(_URDU_TO_ROMAN[two])
+            i += 2
+            continue
+        ch = text[i]
+        if ch in _URDU_TO_ROMAN:
+            result.append(_URDU_TO_ROMAN[ch])
+        elif ch.isascii():
+            result.append(ch)
+        # skip unrecognised non-ASCII characters
+        i += 1
+    return re.sub(r" {2,}", " ", "".join(result)).strip()
+
+
 def _translate_to_roman_urdu(text: str) -> str:
-    """Ask the LLM to rewrite an English reply in Roman Urdu."""
-    import requests as req
-    prompt = (
-        "Translate the following medical advice into Roman Urdu "
-        "(Urdu language written with English/Latin letters, the way Pakistanis text each other). "
-        "Example style: 'Aap ko bukhar hai. Paracetamol lein aur zyada paani piyein. "
-        "Teen din mein theek na hon toh doctor se milein.' "
-        "Output ONLY the Roman Urdu translation — no English, no Urdu script:\n\n" + text[:600]
-    )
+    """
+    Convert English medical text to Roman Urdu.
+
+    Two-step strategy:
+      Step 1 — deep-translator en→ur: get semantically correct native Urdu script.
+      Step 2 — Ask Ollama to romanize the Urdu script.
+                Romanizing is a much easier task for a small LLM than generating
+                Roman Urdu from scratch, so output quality is far better.
+      Fallback — basic character-map romanization if Ollama is offline.
+    """
+    import re, requests as req
+
+    native_urdu: str = ""
+
+    # Step 1: Translate English → native Urdu (Arabic script)
     try:
-        resp = req.post(
-            f"{_OLLAMA_URL}/api/chat",
-            json={
-                "model": _OLLAMA_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.1, "num_predict": 220, "top_p": 0.9},
-            },
-            timeout=45,
-        )
-        resp.raise_for_status()
-        result = resp.json().get("message", {}).get("content", "").strip()
-        return result if result else text
+        from deep_translator import GoogleTranslator
+        native_urdu = (GoogleTranslator(source="en", target="ur").translate(text[:800]) or "").strip()
     except Exception as exc:
-        log.warning("[Chatbot] Roman Urdu translation call failed: %s", exc)
-        return text
+        log.warning("[Chatbot] deep-translator en→ur failed: %s", exc)
+
+    # Step 2: Ask Ollama to romanize the native Urdu
+    if native_urdu:
+        prompt = (
+            "Convert the Urdu text below to Roman Urdu "
+            "(write the same words using English/Latin letters, the way Pakistanis text on WhatsApp).\n\n"
+            "EXAMPLE:\n"
+            "Urdu:       آپ کو بخار ہے۔ پیراسیٹامول لیں اور زیادہ پانی پیئیں۔\n"
+            "Roman Urdu: Aap ko bukhar hai. Paracetamol lein aur zyada paani piyein.\n\n"
+            "Urdu to romanize:\n" + native_urdu[:500] + "\n\nRoman Urdu:"
+        )
+        try:
+            resp = req.post(
+                f"{_OLLAMA_URL}/api/chat",
+                json={
+                    "model": _OLLAMA_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "options": {"temperature": 0.05, "num_predict": 220, "top_p": 0.85},
+                },
+                timeout=45,
+            )
+            resp.raise_for_status()
+            result = resp.json().get("message", {}).get("content", "").strip()
+            result = re.sub(r"^Roman Urdu:\s*", "", result, flags=re.IGNORECASE)
+            if result:
+                return result
+        except Exception as exc:
+            log.warning("[Chatbot] Ollama romanization call failed: %s", exc)
+
+        # Fallback: character-map romanization — only for short phrases.
+        # Longer texts drop all short vowels and produce unreadable output.
+        if len(native_urdu) <= 60:
+            roman = _urdu_script_to_roman(native_urdu)
+            if roman.strip():
+                return roman
+
+    # Nothing worked — return original text unchanged
+    return text
 
 
 def _translate_to_urdu_native(text: str) -> str:
@@ -478,21 +663,39 @@ def _translate_to_urdu_native(text: str) -> str:
 def _enforce_language(reply: str, detected_lang: str) -> str:
     """
     Guarantee the reply is in the same language as the user's input.
-    Only triggers a translation when the LLM returned English despite instructions.
+    Only triggers translation when the LLM returned English despite instructions.
+
+    Detection order for Roman Urdu:
+      1. Use detect_language() — if it says roman_urdu the LLM did its job.
+      2. If reply is native Urdu script, romanize it (LLM used wrong script).
+      3. If reply is English, translate to Roman Urdu.
     """
     if detected_lang == "english" or not reply:
         return reply
 
-    if not _is_english(reply):
-        return reply   # LLM already replied in the right language — nothing to do
+    from app.services.urdu_translator import detect_language as _detect_lang
 
     if detected_lang == "roman_urdu":
-        log.info("[Chatbot] LLM replied in English for Roman Urdu input — translating.")
-        return _translate_to_roman_urdu(reply)
+        reply_lang = _detect_lang(reply)
+        if reply_lang == "roman_urdu":
+            return reply                           # LLM replied correctly — done
+        if reply_lang == "urdu":
+            log.info("[Chatbot] LLM replied in Urdu script for Roman Urdu input — romanizing.")
+            return _urdu_script_to_roman(reply)    # convert script, no extra LLM call
+        if _is_english(reply):
+            log.info("[Chatbot] LLM replied in English for Roman Urdu input — translating.")
+            return _translate_to_roman_urdu(reply)
+        return reply                               # mixed/unknown — return as-is
 
     if detected_lang == "urdu":
-        log.info("[Chatbot] LLM replied in English for Urdu input — translating.")
-        return _translate_to_urdu_native(reply)
+        # Check for native Urdu script presence
+        import re
+        if re.search(r"[؀-ۿ]", reply):
+            return reply                           # already in Urdu script
+        if _is_english(reply):
+            log.info("[Chatbot] LLM replied in English for Urdu input — translating.")
+            return _translate_to_urdu_native(reply)
+        return reply
 
     return reply
 
@@ -515,10 +718,12 @@ _SYMPTOM_KEYWORDS = {
                 "See a doctor if blood appears or it lasts >48 hours.",
     "vomiting": "Sip water or ORS slowly. Avoid solid food for 2–4 hours. "
                 "Seek care if you cannot keep fluids down or notice blood.",
-    "chest pain": "⚠️ Chest pain can indicate a serious condition. "
-                  "Please seek immediate medical attention.",
+    "chest pain": "⚠️ Chest pain can indicate a serious condition such as a heart attack. "
+                  "Please seek immediate medical attention — especially with sweating or breathlessness.",
     "shortness of breath": "⚠️ Difficulty breathing may require urgent care. "
                            "Please visit a doctor or emergency room immediately.",
+    "breathlessness": "⚠️ Difficulty breathing may require urgent care. "
+                      "Please visit a doctor or emergency room immediately.",
     "rash": "Keep the area clean and avoid scratching. "
             "Antihistamines may help for allergic rashes. "
             "See a doctor if the rash spreads or is accompanied by fever.",
@@ -526,6 +731,43 @@ _SYMPTOM_KEYWORDS = {
                       "Avoid spicy food. See a doctor if pain is severe or persistent.",
     "dizziness": "Sit or lie down immediately. Drink water. "
                  "Consult a doctor if dizziness is recurrent or associated with chest pain.",
+    "dehydration": "Drink ORS or water frequently in small sips. "
+                   "Avoid caffeine and alcohol. See a doctor if you feel confused or cannot keep fluids down.",
+    "nausea": "Sip clear fluids slowly. Avoid strong smells and heavy food. "
+              "See a doctor if nausea persists more than 48 hours or is accompanied by chest pain.",
+    "sweating": "Excessive sweating with chest pain or breathlessness is a medical emergency. "
+                "Seek immediate care. Otherwise stay hydrated and rest.",
+    "fatigue": "Rest and stay hydrated. Fatigue lasting more than 2 weeks with other symptoms "
+               "warrants a doctor visit to rule out anaemia, thyroid issues, or infection.",
+    "diabetes": "Diabetes requires proper medical management. "
+                "Monitor blood sugar, follow a low-sugar diet, exercise regularly. "
+                "Consult your doctor for medication adjustments.",
+    "hunger": "Excessive hunger (polyphagia) alongside thirst and frequent urination "
+              "may indicate diabetes. Please consult a doctor for a blood sugar test.",
+    "thirst": "Excessive thirst (polydipsia) combined with frequent urination "
+              "can be a sign of diabetes or kidney issues. See a doctor promptly.",
+    "urination": "Frequent urination with thirst and hunger may indicate diabetes. "
+                 "A urine and blood glucose test is recommended.",
+    "blood vomit": "⚠️ Vomiting blood is a medical emergency. "
+                   "Go to an emergency room immediately. Do not wait.",
+    "blood in vomit": "⚠️ Vomiting blood is a medical emergency. "
+                      "Go to an emergency room immediately. Do not wait.",
+    "vomiting blood": "⚠️ Vomiting blood is a medical emergency. "
+                      "Go to an emergency room immediately. Do not wait.",
+    "sudden headache": "⚠️ A sudden, severe headache (sometimes described as the worst headache "
+                       "of your life) can be a sign of a brain bleed or stroke. "
+                       "Seek emergency care immediately.",
+    "severe headache": "⚠️ Severe headache with vomiting, fever, or neck stiffness may indicate "
+                       "meningitis or another serious condition. Seek emergency care immediately.",
+    "blood in stool": "⚠️ Blood in stool can indicate a serious gastrointestinal condition. "
+                      "See a doctor promptly. If bleeding is heavy or you feel faint, go to emergency.",
+    "weight loss": "Unexplained weight loss, especially with persistent cough or night sweats, "
+                   "may indicate TB or another serious illness. "
+                   "See a doctor and request a chest X-ray and sputum test.",
+    "night sweats": "Night sweats combined with persistent cough or weight loss may indicate TB. "
+                    "Consult a doctor and ask for a chest X-ray and sputum test.",
+    "persistent cough": "A cough lasting more than 2 weeks, especially with weight loss or blood "
+                        "in sputum, may indicate TB or lung disease. See a doctor immediately.",
 }
 
 # Keywords that signal the user is asking about medicines / treatment
@@ -585,9 +827,112 @@ def _medicine_reply(disease: str) -> str:
     return "\n".join(lines)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 5a. ROMAN URDU POST-PROCESSING CLEANUP
+#     Applied AFTER LLM generation to catch English medical terms the model
+#     still inserts despite glossary instructions.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_RU_CLEANUPS: list[tuple[str, str]] = [
+    # Fever
+    (r"\bfeer\b",                                   "bukhar"),
+    (r"\bfever\b",                                  "bukhar"),
+    # Body / pain
+    (r"\bbody\s+(?:ache|pain)\b",                   "jism mein dard"),
+    (r"\bbody\s+ki\s+dard\b",                       "jism mein dard"),
+    (r"\bbody\b",                                   "jism"),
+    (r"\bache\b",                                   "dard"),
+    (r"\bpain\b",                                   "dard"),
+    # GI
+    (r"\bvomiting\b",                               "ulti"),
+    (r"\bnausea\b",                                 "matli"),
+    (r"\bdiarrhea\b",                               "dast"),
+    (r"\bdiarrhoea\b",                              "dast"),
+    # Respiratory
+    (r"\bcough(?:ing)?\b",                          "khansi"),
+    (r"\bshortness\s+of\s+breath\b",               "saans phoolna"),
+    (r"\bbreathing\s+(?:difficulty|problem|trouble|issue)\b", "saans ki takleef"),
+    (r"\bdifficulty\s+(?:in\s+)?breathing\b",      "saans ki takleef"),
+    (r"\bbreathing\b",                              "saans lena"),
+    (r"\bbreath\b",                                 "saans"),
+    # Head / throat
+    (r"\bheadache\b",                               "sar dard"),
+    (r"\bsore\s+throat\b",                          "gala kharab"),
+    (r"\bthroat\s+(?:pain|ache|hurting|hurts)\b",  "gala dard"),
+    (r"\bthroat\b",                                 "gala"),
+    # Weakness / dizziness
+    (r"\bweakness\b",                               "kamzori"),
+    (r"\bfatigue\b",                                "thakaan"),
+    (r"\bdizziness\b",                              "chakkar"),
+    (r"\bdizzy\b",                                  "chakkar"),
+    # Skin
+    (r"\bswelling\b",                               "sujan"),
+    (r"\bitching\b",                                "khujli"),
+    (r"\brash\b",                                   "daane"),
+    # Medicine / treatment
+    (r"\bmedicines?\b",                             "dawai"),
+    (r"\bmedication\b",                             "dawai"),
+    (r"\btreatment\b",                              "ilaj"),
+    # Vague filler
+    (r"\bpossibility\b",                            "mumkin"),
+    (r"\bpossible\b",                               "mumkin"),
+    # Time / units
+    (r"\bweeks\b",                                  "haftay"),
+    (r"\bweek\b",                                   "hafta"),
+    (r"\bwater\b",                                  "paani"),
+    (r"\bstomach\b",                                "pet"),
+]
+
+
+def _fix_roman_urdu_response(text: str) -> str:
+    """
+    Replace English medical terms that slip into LLM Roman Urdu output
+    with their proper Roman Urdu equivalents.
+    Only called when detected_lang == 'roman_urdu'.
+    """
+    import re
+    for pat, repl in _RU_CLEANUPS:
+        text = re.sub(pat, repl, text, flags=re.IGNORECASE)
+    text = re.sub(r" {2,}", " ", text)
+    return text
+
+
+_URGENT_COMBO = {
+    # Cardiac emergencies
+    frozenset({"chest pain", "sweating"}),
+    frozenset({"chest pain", "breathlessness"}),
+    frozenset({"chest pain", "nausea"}),
+    frozenset({"chest pain", "dizziness"}),
+    frozenset({"chest pain", "sweating", "breathlessness"}),
+    # GI bleeding
+    frozenset({"blood", "vomiting"}),
+    frozenset({"blood", "stool"}),
+    # Neurological (potential stroke / meningitis)
+    frozenset({"sudden", "headache", "vomiting"}),
+    frozenset({"severe headache", "confusion"}),
+    frozenset({"severe headache", "fever"}),
+}
+
+_URGENT_REPLY = (
+    "⚠️ **This is a medical emergency.**\n\n"
+    "The combination of symptoms you described — chest pain, breathlessness, sweating, and/or nausea — "
+    "are classic warning signs of a **heart attack** or other serious cardiac event.\n\n"
+    "**Please call emergency services (115) or go to the nearest emergency room immediately.**\n\n"
+    "Do NOT wait. Do NOT drive yourself. Every minute matters.\n\n"
+    "⚠️ *This is urgent health guidance. Seek immediate professional medical care.*"
+)
+
+
 def _rule_based_reply(message: str, context_docs: list[str], history: Optional[list] = None) -> str:
     """Generate a helpful rule-based reply when no LLM is available."""
-    msg_lower = message.lower()
+    # Normalize underscores → spaces so chest_pain matches "chest pain"
+    msg_lower = message.lower().replace("_", " ")
+
+    # ── Emergency combination check (before individual keywords) ─────────────
+    present = {kw for kw in _SYMPTOM_KEYWORDS if kw in msg_lower}
+    for combo in _URGENT_COMBO:
+        if combo.issubset(present):
+            return _URGENT_REPLY
 
     # ── Medicine / treatment question? ────────────────────────────────────────
     if _detect_medicine_query(message):
@@ -621,7 +966,7 @@ def _rule_based_reply(message: str, context_docs: list[str], history: Optional[l
 
     # ── Symptom keywords ──────────────────────────────────────────────────────
     for keyword, response in _SYMPTOM_KEYWORDS.items():
-        if keyword in msg_lower:
+        if keyword in msg_lower or keyword.replace(" ", "_") in message.lower():
             reply = f"**{keyword.title()} guidance:**\n{response}"
             if context_docs:
                 reply += f"\n\n📚 *From medical knowledge base:*\n{context_docs[0][:300]}..."
@@ -742,11 +1087,14 @@ def chat(user_id: str, message: str) -> dict:
     reply = ""
     llm_source = "rule-based"
 
-    # 4a. Try Ollama (local LLM) first
-    # Send the ORIGINAL message so the model can match the user's language.
-    # The system prompt instructs it to reply in the same language.
+    # 4a. Try Ollama (local LLM) first.
+    # For Roman Urdu / Urdu inputs, send the English translation to Ollama.
+    # Small LLMs (3B-7B) process English questions far more reliably than
+    # informal Roman Urdu texting. The language-specific system prompt already
+    # instructs the model to REPLY in Roman Urdu / Urdu script regardless.
+    llm_input = translated_msg if detected_lang in ("roman_urdu", "urdu") else message
     if not reply:
-        ollama_reply = _call_ollama(message, history, context_docs, detected_lang)
+        ollama_reply = _call_ollama(llm_input, history, context_docs, detected_lang)
         if ollama_reply:
             reply = ollama_reply
             llm_source = f"ollama/{_OLLAMA_MODEL}"
@@ -789,9 +1137,15 @@ def chat(user_id: str, message: str) -> dict:
         reply = _rule_based_reply(translated_msg, context_docs, history)
         llm_source = "rule-based"
 
-    # 4d. Language enforcement — translate reply if LLM ignored language instruction
-    if llm_source != "rule-based":
+    # 4d. Language enforcement — translate reply if LLM ignored language instruction.
+    # Rule-based responses stay in English: character-map romanisation (Ollama fallback)
+    # produces garbled output for paragraph-length text, so English is more readable.
+    if llm_source != "rule-based" and reply != _URGENT_REPLY:
         reply = _enforce_language(reply, detected_lang)
+
+    # 4e. Roman Urdu post-processing — replace stray English medical terms
+    if detected_lang == "roman_urdu" and llm_source != "rule-based":
+        reply = _fix_roman_urdu_response(reply)
 
     # 5. Update history
     history.append({"role": "human", "content": message})

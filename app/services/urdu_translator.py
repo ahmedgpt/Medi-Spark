@@ -117,11 +117,47 @@ _URDU_UNICODE_RE = re.compile(r"[\u0600-\u06FF]")
 
 # High-frequency Roman Urdu function words / symptom roots
 _ROMAN_URDU_HINTS = {
-    "bukhar", "dard", "khansi", "matli", "ulti", "qay", "dast",
-    "kamzori", "thakaan", "chakkar", "sujan", "khujli", "daane",
-    "zukam", "nazla", "saans", "tabiyat", "bohat", "zyada", "mujhe",
-    "hai", "hain", "ho", "raha", "rahi", "se", "mein", "ka", "ki",
+    # Medical terms
+    "bukhar", "bukhaar", "dard", "khansi", "khasi", "matli", "ulti", "qay", "dast",
+    "kamzori", "thakaan", "chakkar", "sujan", "khujli", "daane", "dane",
+    "zukam", "nazla", "saans", "tabiyat", "bohat", "bahut", "zyada", "mujhe",
+    "seene", "sine", "peshab", "peet", "gardan", "kamar", "jism", "badan",
+    # Common verbs / copulas
+    "hai", "hain", "ho", "raha", "rahi", "hoon", "hun", "tha", "thi",
+    "hoga", "hogi", "hua", "hui", "jayein", "jayen", "karein", "karen",
+    "lein", "len", "piyein", "piyen",
+    # Pronouns
+    "ye", "yeh", "wo", "woh", "main", "mein", "aap", "ap", "hum", "tum",
+    # Question words
+    "kya", "kyun", "kab", "kahan", "kaun", "kis", "kaise", "kitnay",
+    # Particles / postpositions
+    "se", "ka", "ki", "ke", "ko", "par", "mein", "tak", "bhi",
+    "toh", "to", "aur", "ya", "nahi", "nahin", "na", "phir", "ab",
+    # Common short forms used in Pakistani texting
+    "sb", "sab", "k", "h", "hn", "ap", "kch", "kuch", "btao", "batao",
+    # Time words
+    "kal", "aj", "aaj", "abhi", "parso",
+    # Very common Roman Urdu words in medical replies
+    "salaam", "salam",
+    "ghar", "khana", "khaana",
+    "paani", "pani",
+    "theek", "thik",
+    "zaroor",
+    "wajah", "waja",
+    "ilaj",
+    "doctor", # used in Roman Urdu responses constantly
+    "sirf", "aam", "maloomat",
+    "aksar", "mushkil",
+    "shehad", "adrak",
+    "masla",
+    "nishani", "nishaan",
+    "shukriya", "shukr",
+    "takleef",
+    "apka", "aapka", "apki", "aapki",
 }
+
+# Punctuation stripper for tokenisation
+_PUNCT_RE = re.compile(r"[^\w\s]")
 
 
 def detect_language(text: str) -> str:
@@ -138,19 +174,22 @@ def detect_language(text: str) -> str:
     if _URDU_UNICODE_RE.search(text):
         return "urdu"
 
-    tokens = set(text.lower().split())
+    # Strip punctuation before tokenising so "hain?" matches "hain"
+    clean = _PUNCT_RE.sub(" ", text.lower())
+    tokens = set(clean.split())
+
     # Need at least 2 hint matches to avoid false positives on English
     overlap = tokens & _ROMAN_URDU_HINTS
     if len(overlap) >= 2:
         return "roman_urdu"
 
-    # Single-word match only for strong medical terms (not common words like 'hai', 'se')
+    # Single strong medical term is enough on its own
     _strong_hints = {
         "bukhar", "dard", "khansi", "matli", "ulti", "qay", "dast",
         "kamzori", "thakaan", "chakkar", "sujan", "khujli", "daane",
         "zukam", "nazla", "saans", "tabiyat", "mujhe",
     }
-    if len(tokens & _strong_hints) >= 1:
+    if tokens & _strong_hints:
         return "roman_urdu"
 
     return "english"
@@ -214,11 +253,20 @@ def translate_to_english(text: str) -> str:
         return translated
 
     if lang == "roman_urdu":
-        # 1) Apply domain medical dictionary (fast, no network)
+        # Run Google Translate on the ORIGINAL text first.
+        # Google handles Pakistani Roman Urdu (source=auto) reliably, and applying
+        # the medical dict BEFORE Google creates hybrid text like "aik haftay se cough hai"
+        # which Google then mis-parses ("aik for a week cough").
+        translated = _google_translate(text, source="auto")
+        if translated and translated.lower().strip() != text.lower().strip():
+            log.info("[Translator] Roman Urdu→English (Google direct): %s → %s",
+                     text[:60], translated[:60])
+            return translated
+        # Fallback only if Google returned the same string unchanged: apply medical dict
         after_dict = _apply_medical_dict(text)
-        # 2) Run Google Translate to fix remaining Roman Urdu words
         translated = _google_translate(after_dict, source="auto")
-        log.info("[Translator] Roman Urdu→English: %s → %s", text[:60], translated[:60])
+        log.info("[Translator] Roman Urdu→English (dict+Google): %s → %s",
+                 text[:60], translated[:60])
         return translated
 
     # English — pass through
