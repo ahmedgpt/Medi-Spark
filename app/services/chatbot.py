@@ -206,6 +206,10 @@ def _get_retriever(k: int = 4):
 # ══════════════════════════════════════════════════════════════════════════════
 
 # Ollama config (read from env / settings.py)
+_GROQ_API_KEY   = os.getenv("GROQ_API_KEY",  "")
+_GROQ_MODEL     = os.getenv("GROQ_MODEL",    "llama-3.3-70b-versatile")
+_GROQ_TIMEOUT   = int(os.getenv("GROQ_TIMEOUT", "30"))
+
 _OLLAMA_URL     = os.getenv("OLLAMA_URL",     "http://localhost:11434")
 _OLLAMA_MODEL   = os.getenv("OLLAMA_MODEL",   "gemma3:1b")
 _OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "120"))  # 120s for remote tunnel; local default was 90s
@@ -492,6 +496,64 @@ def _call_ollama(
         return ""
     except Exception as exc:  # noqa: BLE001
         log.warning("[Chatbot] Ollama error: %s", exc)
+        return ""
+
+
+def _call_groq(
+    message: str,
+    history: list[dict],
+    context_docs: list[str],
+    detected_lang: str = "english",
+) -> str:
+    """
+    Call a cloud LLM via OpenAI-compatible REST (no extra SDK needed).
+
+    Auto-detects provider from key prefix:
+      xai-…  →  xAI Grok  (api.x.ai)    model default: grok-3-mini
+      gsk_…  →  Groq       (api.groq.com) model default: llama-3.3-70b-versatile
+    """
+    if not _GROQ_API_KEY:
+        return ""
+
+    import requests as req
+
+    is_xai = _GROQ_API_KEY.startswith("xai-")
+    if is_xai:
+        url      = "https://api.x.ai/v1/chat/completions"
+        model    = _GROQ_MODEL if _GROQ_MODEL.startswith("grok") else "grok-3-mini"
+        provider = "xAI Grok"
+    else:
+        url      = "https://api.groq.com/openai/v1/chat/completions"
+        model    = _GROQ_MODEL
+        provider = "Groq"
+
+    messages = _build_ollama_messages(message, history, context_docs, detected_lang)
+    try:
+        resp = req.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {_GROQ_API_KEY}",
+                "Content-Type":  "application/json",
+            },
+            json={
+                "model":       model,
+                "messages":    messages,
+                "max_tokens":  400,
+                "temperature": 0.4,
+                "top_p":       0.85,
+            },
+            timeout=_GROQ_TIMEOUT,
+        )
+        resp.raise_for_status()
+        reply = (resp.json()["choices"][0]["message"]["content"] or "").strip()
+        if reply:
+            log.info("[Chatbot] %s (%s) replied.", provider, model)
+        return reply
+    except req.Timeout:
+        log.warning("[Chatbot] %s timed out after %ds.", provider, _GROQ_TIMEOUT)
+        return ""
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[Chatbot] %s error: %s", provider, exc)
         return ""
 
 
@@ -1087,19 +1149,25 @@ def chat(user_id: str, message: str) -> dict:
     reply = ""
     llm_source = "rule-based"
 
-    # 4a. Try Ollama (local LLM) first.
-    # For Roman Urdu / Urdu inputs, send the English translation to Ollama.
-    # Small LLMs (3B-7B) process English questions far more reliably than
-    # informal Roman Urdu texting. The language-specific system prompt already
-    # instructs the model to REPLY in Roman Urdu / Urdu script regardless.
+    # For Roman Urdu / Urdu inputs send the English translation to the LLM.
+    # The language-specific system prompt instructs it to REPLY in the user's language.
     llm_input = translated_msg if detected_lang in ("roman_urdu", "urdu") else message
+
+    # 4a. Try Groq cloud API first (fast, free, reliable — no local setup needed)
+    if not reply:
+        groq_reply = _call_groq(llm_input, history, context_docs, detected_lang)
+        if groq_reply:
+            reply = groq_reply
+            llm_source = f"groq/{_GROQ_MODEL}"
+
+    # 4b. Fall back to local Ollama if Groq key not set or Groq failed
     if not reply:
         ollama_reply = _call_ollama(llm_input, history, context_docs, detected_lang)
         if ollama_reply:
             reply = ollama_reply
             llm_source = f"ollama/{_OLLAMA_MODEL}"
 
-    # 4b. Try cloud LLM (Anthropic / OpenAI) if Ollama failed
+    # 4c. Try cloud LLM (Anthropic / OpenAI) if both above failed
     if not reply:
         cloud_llm = _get_cloud_llm()
         if cloud_llm and retriever:
@@ -1132,18 +1200,18 @@ def chat(user_id: str, message: str) -> dict:
                 reply = llm_result[0]
                 llm_source = "cloud-llm"
 
-    # 4c. Final fallback — rule-based (instant, no network)
+    # 4d. Final fallback — rule-based (instant, no network)
     if not reply:
         reply = _rule_based_reply(translated_msg, context_docs, history)
         llm_source = "rule-based"
 
-    # 4d. Language enforcement — translate reply if LLM ignored language instruction.
+    # 4e. Language enforcement — translate reply if LLM ignored language instruction.
     # Rule-based responses stay in English: character-map romanisation (Ollama fallback)
     # produces garbled output for paragraph-length text, so English is more readable.
     if llm_source != "rule-based" and reply != _URGENT_REPLY:
         reply = _enforce_language(reply, detected_lang)
 
-    # 4e. Roman Urdu post-processing — replace stray English medical terms
+    # 4f. Roman Urdu post-processing — replace stray English medical terms
     if detected_lang == "roman_urdu" and llm_source != "rule-based":
         reply = _fix_roman_urdu_response(reply)
 

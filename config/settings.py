@@ -56,10 +56,15 @@ class Config:
         BASE_DIR / os.getenv("SYMPTOM_INDEX_PATH", "models/symptom_index.json")
     )
 
-    # LLM keys (used Week 2)
+    # LLM keys
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
+
+    # Groq — primary cloud LLM (free tier, fast inference)
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL   = os.getenv("GROQ_MODEL",  "llama-3.3-70b-versatile")
+    GROQ_TIMEOUT = int(os.getenv("GROQ_TIMEOUT", "30"))
 
     # Ollama — local LLM via ollama (Week 4)
     OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
